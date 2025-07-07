@@ -185,6 +185,88 @@ EOF
     log_success "NetworkManager configurado para ignorar wlan0"
 }
 
+ensure_hostapd_dnsmasq_templates() {
+    log_info "Asegurando que las plantillas de configuración existan..."
+    
+    # Crear directorio de configuración si no existe
+    mkdir -p "$CONFIG_DIR"
+    
+    # Definir plantillas necesarias
+    local template_files=(
+        "hostapd.conf.template"
+        "dnsmasq.conf.template"
+        "dhcpcd.conf.backup"
+    )
+    
+    for template in "${template_files[@]}"; do
+        local dest_file="$CONFIG_DIR/$template"
+        
+        if [ ! -f "$dest_file" ]; then
+            log_warn "Plantilla faltante: $template - creando plantilla básica"
+            # Crear plantillas básicas si no existen
+            case "$template" in
+                "hostapd.conf.template")
+                    cat > "$dest_file" << EOF
+# hostapd configuration for ControlsegConfig AP
+interface=wlan0
+driver=nl80211
+ssid=ControlsegConfig
+hw_mode=g
+channel=1
+ieee80211n=1
+wmm_enabled=1
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase=Grupo1598
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+country_code=AR
+EOF
+                    ;;
+                "dnsmasq.conf.template")
+                    cat > "$dest_file" << EOF
+# dnsmasq configuration for ControlsegConfig AP
+interface=wlan0
+bind-interfaces
+no-resolv
+domain=controlseg.local
+dhcp-range=192.168.4.50,192.168.4.150,255.255.255.0,24h
+dhcp-option=3,192.168.4.100
+dhcp-option=6,8.8.8.8,8.8.4.4
+server=8.8.8.8
+server=8.8.4.4
+local=/controlseg.local/
+address=/gateway.controlseg.local/192.168.4.100
+EOF
+                    ;;
+                "dhcpcd.conf.backup")
+                    cat > "$dest_file" << EOF
+# dhcpcd configuration backup for client mode restoration
+hostname
+clientid
+persistent
+option rapid_commit
+option domain_name_servers, domain_name, domain_search, host_name
+option classless_static_routes
+option ntp_servers
+option interface_mtu
+require dhcp_server_identifier
+slaac private
+EOF
+                    ;;
+            esac
+            chmod 644 "$dest_file"
+            log_info "Plantilla básica creada: $template"
+        else
+            log_info "Plantilla ya existe: $template"
+        fi
+    done
+    
+    log_success "Plantillas de configuración verificadas"
+}
+
 setup_access_point() {
     log_info "Configurando Access Point WiFi con hostapd + dnsmasq..."
     
@@ -201,6 +283,9 @@ setup_access_point() {
     fi
     
     log_info "Interfaz wlan0 detectada correctamente"
+    
+    # Asegurar que las plantillas de configuración existan
+    ensure_hostapd_dnsmasq_templates
     
     # Verificar que los scripts de modo están disponibles
     local ap_mode_script="$CONFIG_DIR/../scripts/ap_mode.sh"

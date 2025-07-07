@@ -247,6 +247,9 @@ prompt_building_identification() {
 ensure_hostapd_dnsmasq_templates() {
     log_info "Asegurando que las plantillas de configuración existan..."
     
+    # Crear directorio de configuración si no existe
+    mkdir -p "$CONFIG_DIR"
+    
     # Copiar plantillas de configuración al directorio de configuración
     local template_files=(
         "hostapd.conf.template"
@@ -256,17 +259,42 @@ ensure_hostapd_dnsmasq_templates() {
     )
     
     for template in "${template_files[@]}"; do
-        local source_file="$CONFIG_DIR/$template"
-        if [ ! -f "$source_file" ]; then
-            # Si no existe la plantilla, crearla desde el repositorio
-            local repo_template="config/$template"
-            if [ -f "$repo_template" ]; then
-                cp "$repo_template" "$source_file"
-                chmod 644 "$source_file"
+        local dest_file="$CONFIG_DIR/$template"
+        local source_file="$PWD/config/$template"
+        
+        if [ ! -f "$dest_file" ]; then
+            # Si no existe la plantilla en destino, copiarla desde el repositorio
+            if [ -f "$source_file" ]; then
+                cp "$source_file" "$dest_file"
+                chmod 644 "$dest_file"
                 log_info "Plantilla copiada: $template"
             else
-                log_warn "Plantilla no encontrada: $template"
+                log_warn "Plantilla no encontrada en repositorio: $source_file"
+                # Crear plantilla básica para hostapd si no existe
+                if [ "$template" = "hostapd.conf.template" ]; then
+                    cat > "$dest_file" << EOF
+# hostapd configuration for ControlsegConfig AP
+interface=wlan0
+driver=nl80211
+ssid=ControlsegConfig
+hw_mode=g
+channel=1
+ieee80211n=1
+wmm_enabled=1
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase=Grupo1598
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+country_code=AR
+EOF
+                    log_info "Plantilla hostapd básica creada"
+                fi
             fi
+        else
+            log_info "Plantilla ya existe: $template"
         fi
     done
     
@@ -759,6 +787,9 @@ prepare_deferred_network_configuration() {
     # Instalar servicio de aplicación de configuración
     install_network_config_applier_service
     
+    # Instalar servicio de monitoreo WiFi
+    install_wifi_mode_monitor_service
+    
     log_success "Configuración de red diferida preparada exitosamente"
     return 0
 }
@@ -807,6 +838,30 @@ EOF
     systemctl enable network-config-applier.service
     
     log_success "Servicio de aplicación de configuración de red instalado"
+    return 0
+}
+
+install_wifi_mode_monitor_service() {
+    log_info "Instalando servicio de monitoreo WiFi..."
+    
+    # Copiar el servicio systemd para el monitor WiFi
+    cp "$PWD/wifi-mode-monitor.service" /etc/systemd/system/ || {
+        log_error "Error copiando servicio de monitoreo WiFi"
+        return 1
+    }
+    
+    # Hacer ejecutables los scripts
+    chmod +x "$CONFIG_DIR/../scripts/ap_mode.sh"
+    chmod +x "$CONFIG_DIR/../scripts/client_mode.sh"
+    chmod +x "$CONFIG_DIR/../scripts/wifi_mode_monitor.sh"
+    chmod +x "$CONFIG_DIR/../scripts/wifi_config_manager.sh"
+    chmod +x "$CONFIG_DIR/../scripts/web_wifi_api.sh"
+    
+    # Recargar systemd y habilitar servicio
+    systemctl daemon-reload
+    systemctl enable wifi-mode-monitor.service
+    
+    log_success "Servicio de monitoreo WiFi instalado"
     return 0
 }
 

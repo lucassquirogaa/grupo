@@ -43,16 +43,23 @@ Dirección/Nombre del edificio: _
 - Se usa para generar hostname único en Tailscale
 - Permite cambio posterior si ya existe
 
-### 2. 📶 Access Point Automático (Aplicado después del reinicio)
+### 2. 📶 Sistema WiFi Robusto con hostapd + dnsmasq
 
-Cuando **NO** hay WiFi configurado, se programa la creación automática de:
+Cuando **NO** hay WiFi configurado, se activa automáticamente:
+
+**Tecnología robusta:**
+- **hostapd**: Manejo nativo del Access Point
+- **dnsmasq**: Servidor DHCP confiable
+- **NetworkManager**: Deshabilitado en wlan0
+- **Monitoreo continuo**: Auto-recovery y modo switching
 
 **Configuración del AP:**
 - **SSID**: `ControlsegConfig`
 - **Contraseña**: `Grupo1598`
 - **IP Gateway**: `192.168.4.100`
 - **Red**: `192.168.4.0/24`
-- **DNS**: `8.8.8.8`
+- **DHCP Range**: `192.168.4.50-150`
+- **DNS**: `8.8.8.8, 8.8.4.4`
 
 **Para usar después del reinicio:**
 1. Reiniciar: `sudo reboot`
@@ -60,6 +67,11 @@ Cuando **NO** hay WiFi configurado, se programa la creación automática de:
 3. Conectar con contraseña `Grupo1598`
 4. Ir a `http://192.168.4.100:8080`
 5. Configurar WiFi principal desde el portal
+
+**Auto-switching:**
+- **→ Cliente**: Al configurar WiFi válida
+- **→ AP**: Si pierde conexión cliente (3 fallos)
+- **Monitoreo**: Cada 30 segundos automático
 
 ### 3. 🔒 Tailscale Integrado
 
@@ -87,15 +99,22 @@ Antes de configurar la red, se limpia:
 - ✅ IPs duplicadas en `eth0`
 - ✅ Configuraciones de red obsoletas
 
-### 5. 🔍 Detección WiFi Mejorada
+### 5. 🔍 Detección WiFi Sin Dependencias
 
-Verificación más estricta de conectividad:
+Verificación robusta sin nmcli/NetworkManager:
 
 **Verificaciones:**
-- ✅ Conexiones WiFi configuradas en NetworkManager
-- ✅ Conexiones WiFi actualmente activas
-- ✅ Interfaz `wlan0` UP con IP asignada
-- ✅ Conectividad real de red
+- ✅ Archivo de configuración WiFi `/opt/gateway/wifi_client.conf`
+- ✅ Configuraciones en `/etc/wpa_supplicant/wpa_supplicant.conf`
+- ✅ Estado wpa_supplicant activo (wpa_state=COMPLETED)
+- ✅ Interfaz `wlan0` UP con IP válida (no 192.168.4.x)
+- ✅ Conectividad real verificada por monitor
+
+**Ventajas:**
+- ✅ No depende de NetworkManager
+- ✅ Funciona con wpa_supplicant puro
+- ✅ Detección más confiable
+- ✅ Compatible con sistemas mínimos
 
 ## Flujo de Instalación Completo
 
@@ -106,17 +125,19 @@ sudo ./install_gateway_v10.sh
 ### Paso a Paso:
 
 1. **PASO 1**: Instalación de dependencias
-   - Incluye: `hostapd`, `dnsmasq`, `iptables`
-   - Para funcionalidad de Access Point
+   - WiFi robusto: `hostapd`, `dnsmasq`, `iptables`
+   - Sistema: `python3`, `systemd`, `curl`, `git`
+   - Herramientas red: `wpa_supplicant`, `dhcpcd`
 
 2. **PASO 2**: Identificación del edificio
    - Prompt interactivo para ubicación
    - Validación y almacenamiento
 
-3. **PASO 3**: Configuración de red (DIFERIDA)
-   - Preparación sin aplicar cambios inmediatamente
-   - Configuración de servicio para aplicar después del reinicio
-   - AP si no hay WiFi / DHCP si hay WiFi (aplicado tras reinicio)
+3. **PASO 3**: Sistema WiFi robusto (DIFERIDA)
+   - Plantillas hostapd + dnsmasq
+   - Scripts de modo AP/cliente
+   - Servicio de monitoreo WiFi
+   - NetworkManager configurado para ignorar wlan0
 
 4. **PASO 4**: Entorno Python
    - Virtual environment y dependencias
