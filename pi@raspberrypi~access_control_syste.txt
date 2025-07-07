@@ -1933,6 +1933,131 @@ def api_install_system_update():
     except FileNotFoundError: app.logger.critical("git/sudo/systemctl no encontrado."); log_system_event('CRITICAL', 'Update Install Failed', "git/sudo/systemctl no encontrado."); return jsonify(success=False, message="Error crítico: Falta comando."), 500
     except Exception as e: app.logger.error(f"Excepción update: {e}", exc_info=True); log_system_event('CRITICAL', 'Update Install Failed', f"Excepción: {e}"); return jsonify(success=False, message="Error interno."), 500
 
+# --- Network Configuration Management ---
+@app.route('/api/system/network-change', methods=['POST'])
+def api_network_change_notification():
+    """Endpoint para recibir notificaciones de cambios de red del monitor."""
+    try:
+        data = request.get_json() or {}
+        message = data.get('message', 'Network configuration changed')
+        timestamp = data.get('timestamp', datetime.now(timezone.utc).isoformat())
+        
+        app.logger.info(f"Network change notification: {message}")
+        log_system_event('INFO', 'Network Config Change', message)
+        
+        return jsonify({"success": True, "message": "Notification received"}), 200
+    except Exception as e:
+        app.logger.error(f"Error processing network change notification: {e}", exc_info=True)
+        return jsonify({"success": False, "message": "Error processing notification"}), 500
+
+@app.route('/api/system/network-status', methods=['GET'])
+@admin_required
+def api_network_status():
+    """Obtiene el estado actual de la configuración de red."""
+    try:
+        status = {
+            "wifi": {},
+            "ethernet": {},
+            "gateway": {},
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Estado WiFi
+        try:
+            wifi_ssid = get_current_wifi_ssid()
+            status["wifi"]["connected"] = wifi_ssid != "Desconectado"
+            status["wifi"]["ssid"] = wifi_ssid if wifi_ssid != "Desconectado" else None
+        except Exception as e:
+            app.logger.warning(f"Error getting WiFi status: {e}")
+            status["wifi"]["error"] = str(e)
+        
+        # Estado Ethernet
+        try:
+            eth_interface = "eth0"
+            eth_info = subprocess.run(['ip', 'addr', 'show', eth_interface], 
+                                    capture_output=True, text=True, check=False, timeout=5)
+            if eth_info.returncode == 0:
+                # Extraer IP de ethernet
+                import re
+                ip_match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)/(\d+)', eth_info.stdout)
+                if ip_match:
+                    status["ethernet"]["ip"] = ip_match.group(1)
+                    status["ethernet"]["netmask"] = ip_match.group(2)
+                    
+                    # Determinar si es IP estática o DHCP
+                    if ip_match.group(1).startswith("192.168.4."):
+                        status["ethernet"]["config"] = "static"
+                        status["ethernet"]["network_type"] = "tplink"
+                    else:
+                        status["ethernet"]["config"] = "dhcp"
+                        status["ethernet"]["network_type"] = "building"
+                else:
+                    status["ethernet"]["config"] = "no_ip"
+            else:
+                status["ethernet"]["error"] = "Interface not found"
+        except Exception as e:
+            app.logger.warning(f"Error getting ethernet status: {e}")
+            status["ethernet"]["error"] = str(e)
+        
+        # Gateway actual
+        try:
+            gateway_info = subprocess.run(['ip', 'route', 'show', 'default'], 
+                                        capture_output=True, text=True, check=False, timeout=5)
+            if gateway_info.returncode == 0:
+                import re
+                gateway_match = re.search(r'default via (\d+\.\d+\.\d+\.\d+)', gateway_info.stdout)
+                if gateway_match:
+                    status["gateway"]["ip"] = gateway_match.group(1)
+        except Exception as e:
+            app.logger.warning(f"Error getting gateway status: {e}")
+            status["gateway"]["error"] = str(e)
+        
+        return jsonify(status), 200
+        
+    except Exception as e:
+        app.logger.error(f"Error getting network status: {e}", exc_info=True)
+        return jsonify({"success": False, "message": f"Error: {e}"}), 500
+
+@app.route('/api/system/network-force-dhcp', methods=['POST'])
+@admin_required
+def api_force_dhcp():
+    """Fuerza el cambio a configuración DHCP en ethernet."""
+    app.logger.warning(f"API: Force DHCP requested by {current_user.username}")
+    log_system_event('WARNING', 'Network Force DHCP', f"Manual DHCP configuration by {current_user.username}")
+    
+    try:
+        # Ejecutar script de cambio a DHCP
+        result = subprocess.run([
+            'nmcli', 'connection', 'modify', 'Wired connection 1',
+            'ipv4.method', 'auto',
+            'ipv4.addresses', '',
+            'ipv4.gateway', '',
+            'ipv4.dns', ''
+        ], capture_output=True, text=True, check=False, timeout=30)
+        
+        if result.returncode == 0:
+            # Activar conexión
+            activate_result = subprocess.run([
+                'nmcli', 'connection', 'up', 'Wired connection 1'
+            ], capture_output=True, text=True, check=False, timeout=30)
+            
+            if activate_result.returncode == 0:
+                log_system_event('INFO', 'Network DHCP Configured', "Manual DHCP configuration successful")
+                return jsonify({"success": True, "message": "Ethernet configured for DHCP"}), 200
+            else:
+                error_msg = activate_result.stderr or activate_result.stdout or "Unknown error"
+                log_system_event('ERROR', 'Network DHCP Failed', f"Failed to activate DHCP: {error_msg}")
+                return jsonify({"success": False, "message": f"DHCP configured but activation failed: {error_msg}"}), 500
+        else:
+            error_msg = result.stderr or result.stdout or "Unknown error"
+            log_system_event('ERROR', 'Network DHCP Failed', f"Failed to configure DHCP: {error_msg}")
+            return jsonify({"success": False, "message": f"Failed to configure DHCP: {error_msg}"}), 500
+            
+    except Exception as e:
+        app.logger.error(f"Error forcing DHCP: {e}", exc_info=True)
+        log_system_event('ERROR', 'Network DHCP Failed', f"Exception: {e}")
+        return jsonify({"success": False, "message": f"Error: {e}"}), 500
+
 # ============================================
 # 12. BLOQUE DE INICIALIZACIÓN PRINCIPAL
 # ============================================

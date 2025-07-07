@@ -1,0 +1,24 @@
+[Unit]
+Description=Network Configuration Monitor
+Documentation=man:systemd.service(5)
+After=network.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/gateway/network_monitor.sh start
+ExecStop=/opt/gateway/network_monitor.sh stop
+Restart=always
+RestartSec=10
+User=root
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/log /opt/gateway
+
+[Install]
+WantedBy=multi-user.target
