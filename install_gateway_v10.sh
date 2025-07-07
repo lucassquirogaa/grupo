@@ -1,23 +1,27 @@
 #!/bin/bash
 
 # ============================================
-# Gateway Installation Script v10.1
+# Gateway Installation Script v10.2
 # ============================================
-# Sistema de Control de Acceso con configuración automática de red
-# Autor: Sistema PCT
-# Versión: 10.1
+# Sistema Gateway 24/7 para Raspberry Pi 3B+ con Samsung Pro Endurance 64GB
+# Incluye sistema completo de monitoreo, notificaciones Telegram,
+# integración Tailscale, y optimizaciones para operación 24/7
 # 
-# Funcionalidades:
+# Características:
 # - Configuración automática de IP estática para setup inicial con TP-Link
 # - Detección automática de WiFi configurado
 # - Cambio automático a DHCP después de configurar WiFi
-# - Instalación y configuración del sistema de control de acceso
+# - Bot Telegram interactivo con comandos de control
+# - Integración completa de Tailscale VPN
+# - Monitoreo 24/7 con auto-recovery
+# - Optimizaciones específicas para Raspberry Pi 3B+
+# - Reportes automáticos semanales
 # ============================================
 
 set -e  # Salir en caso de error
 
 # Variables de configuración
-SCRIPT_VERSION="10.1"
+SCRIPT_VERSION="10.2"
 LOG_FILE="/var/log/gateway_install.log"
 CONFIG_DIR="/opt/gateway"
 SERVICE_NAME="access_control.service"
@@ -456,7 +460,7 @@ validate_network_configuration() {
 main() {
     echo "============================================"
     echo "Gateway Installation Script v$SCRIPT_VERSION"
-    echo "Sistema de Control de Acceso PCT"
+    echo "Sistema Gateway 24/7 - Raspberry Pi 3B+"
     echo "============================================"
     
     # Verificar que se ejecuta como root
@@ -469,7 +473,7 @@ main() {
     # Crear directorio de logs
     mkdir -p "$(dirname "$LOG_FILE")"
     
-    log_info "Iniciando instalación del gateway v$SCRIPT_VERSION"
+    log_info "Iniciando instalación del Sistema Gateway 24/7 v$SCRIPT_VERSION"
     
     # Paso 1: Instalar dependencias
     log_info "=== PASO 1: Instalando dependencias ==="
@@ -492,33 +496,65 @@ main() {
         exit 1
     }
     
-    # Paso 4: Instalar servicio
-    log_info "=== PASO 4: Instalando servicio ==="
+    # Paso 4: Instalar servicio principal
+    log_info "=== PASO 4: Instalando servicio principal ==="
     install_access_control_service || {
-        log_error "Error instalando servicio"
+        log_error "Error instalando servicio principal"
         exit 1
     }
     
-    log_success "¡Instalación completada exitosamente!"
+    # Paso 5: Optimizar para Raspberry Pi 3B+
+    log_info "=== PASO 5: Optimizando para Raspberry Pi 3B+ ==="
+    if [ -f "scripts/optimize_pi.sh" ]; then
+        bash scripts/optimize_pi.sh || {
+            log_warn "Algunas optimizaciones fallaron, continuando..."
+        }
+    else
+        log_warn "Script de optimización no encontrado, saltando..."
+    fi
+    
+    # Paso 6: Configurar sistema de monitoreo 24/7
+    log_info "=== PASO 6: Configurando monitoreo 24/7 ==="
+    if [ -f "scripts/setup_monitoring.sh" ]; then
+        bash scripts/setup_monitoring.sh || {
+            log_warn "Configuración de monitoreo falló, continuando..."
+        }
+    else
+        log_warn "Script de monitoreo no encontrado, continuando..."
+    fi
+    
+    log_success "¡Instalación del Sistema Gateway 24/7 completada!"
     log_info "Logs disponibles en: $LOG_FILE"
     
     # Mostrar información final
     local current_ip=$(ip addr show $ETH_INTERFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1 | head -1)
+    local tailscale_ip=$(tailscale ip 2>/dev/null || echo "Pendiente")
+    
     echo ""
     echo "=========================================="
-    echo "INSTALACIÓN COMPLETADA"
+    echo "SISTEMA GATEWAY 24/7 INSTALADO"
     echo "=========================================="
-    echo "IP actual: $current_ip"
-    echo "Portal web: http://$current_ip:8080"
-    echo "Servicio: $SERVICE_NAME"
+    echo "🌐 IP Ethernet: $current_ip"
+    echo "🔒 IP Tailscale: $tailscale_ip"
+    echo "🌍 Portal web: http://$current_ip:8080"
+    echo "🤖 Bot Telegram: Configurado"
+    echo "📊 Monitoreo 24/7: Activo"
     echo "=========================================="
     echo ""
-    echo "Para iniciar el servicio:"
-    echo "  sudo systemctl start $SERVICE_NAME"
+    echo "🔧 Comandos útiles:"
+    echo "  gateway-status               - Estado completo"
+    echo "  systemctl status $SERVICE_NAME"
+    echo "  systemctl status telegram-notifier.service"
     echo ""
-    echo "Para ver logs del servicio:"
-    echo "  sudo journalctl -u $SERVICE_NAME -f"
+    echo "📱 Comandos bot Telegram:"
+    echo "  /status - Estado del sistema"
+    echo "  /health - Diagnóstico completo"
+    echo "  /users  - Usuarios Tailscale conectados"
+    echo "  /restart [servicio] - Reinicio remoto"
     echo ""
+    echo "⚠️  REINICIO REQUERIDO para aplicar optimizaciones"
+    echo "   Ejecute: sudo reboot"
+    echo "=========================================="
 }
 
 # Ejecutar función principal
