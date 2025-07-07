@@ -1,26 +1,66 @@
-# Gateway Installation Script v10.1
+# Sistema Gateway 24/7 - Raspberry Pi 3B+
 
 ## Descripción
 
-Sistema de instalación y configuración automática de gateway para control de acceso PCT con soporte para configuración de red automática.
+Sistema completo de gateway con monitoreo 24/7 optimizado para Raspberry Pi 3B+ con Samsung Pro Endurance 64GB. Incluye notificaciones Telegram, integración Tailscale, auto-recovery y optimizaciones específicas para operación continua.
 
 ### Características Principales
 
+#### 🌐 **Red Inteligente**
 - **Configuración automática de IP estática** para setup inicial con modem TP-Link
 - **Detección automática de WiFi** configurado
 - **Cambio automático a DHCP** después de configurar WiFi exitosamente
 - **Monitoreo continuo de red** para transiciones automáticas
-- **Portal web integrado** en puerto 8080 para configuración
-- **Logs detallados** para troubleshooting
-- **Compatibilidad con NetworkManager** y sistemas legacy
+
+#### 📱 **Sistema de Notificaciones Telegram**
+- **Bot Token**: `7954949854:AAHjEYMdvJ9z2jD8pV7fGsI0a6ipTjJHR2M`
+- **Chat ID**: `-4812920580`
+- **Notificaciones en tiempo real** de conexiones, desconexiones y eventos críticos
+- **Bot interactivo** con comandos de control remoto
+
+#### 🔒 **Integración Tailscale Completa**
+- **Auto-instalación** durante el setup del gateway
+- **Monitor de conexiones** en tiempo real con logging de accesos
+- **Auto-reconexión** automática si se pierde conexión
+- **Gestión de usuarios** y notificaciones de acceso
+
+#### ⚡ **Optimizaciones Raspberry Pi 3B+**
+- **CPU**: ARM Cortex-A53 1.4GHz (4 cores) - Gestión térmica optimizada
+- **RAM**: 1GB LPDDR2 - Uso eficiente con zram y tmpfs
+- **Storage**: Samsung Pro Endurance 64GB - Minimización de escrituras
+- **Monitoreo de temperatura** con alertas preventivas
+
+#### 🛡️ **Auto-Recovery y Monitoring 24/7**
+- **Hardware watchdog** con reinicio automático en 2 minutos
+- **Health checks** cada 5 minutos para CPU/RAM/Temperatura
+- **Auto-recovery** de servicios críticos
+- **Limpieza automática** de logs y espacio en disco
+
+#### 📊 **Bot Telegram Interactivo**
+Comandos disponibles:
+- `/status` - Estado completo del sistema
+- `/users` - Usuarios Tailscale conectados actualmente  
+- `/logs` - Últimos 10 eventos importantes
+- `/restart [servicio]` - Reinicio remoto de servicios específicos
+- `/health` - Diagnóstico completo con métricas
+- `/temp` - Temperatura actual y estado de throttling
+- `/network` - Estado de todas las conexiones
 
 ## Flujo de Trabajo
 
-### 1. Instalación Inicial
+### 1. Instalación Completa
 
 ```bash
 sudo ./install_gateway_v10.sh
 ```
+
+**El script ejecuta automáticamente:**
+1. **Instalación de dependencias** (Python, systemd, red)
+2. **Configuración de red inteligente** (estática → WiFi → DHCP)
+3. **Setup del entorno Python** con virtual environment
+4. **Instalación del servicio principal** de control de acceso
+5. **Optimizaciones Raspberry Pi 3B+** (memoria, CPU, storage)
+6. **Configuración monitoreo 24/7** (Telegram, Tailscale, watchdog)
 
 ### 2. Configuración de Red Automática
 
@@ -30,30 +70,53 @@ sudo ./install_gateway_v10.sh
    - Acceso web: `http://192.168.4.100:8080`
 
 2. **Con WiFi configurado**:
-   - Ethernet: DHCP automático
+   - Ethernet: DHCP automático  
    - WiFi: Conexión a red del edificio
-   - Tailscale: Acceso remoto
+   - Tailscale: Acceso remoto seguro
 
-### 3. Transición Automática
+### 3. Monitoreo Automático 24/7
 
-El script `network_monitor.sh` detecta cuando se configura WiFi exitosamente y cambia automáticamente ethernet de IP estática a DHCP.
+- **Notificaciones Telegram** en tiempo real
+- **Health checks** continuos del sistema
+- **Auto-recovery** de servicios críticos
+- **Reportes semanales** automáticos
+- **Control remoto** via bot Telegram
 
 ## Archivos del Sistema
 
 ### Scripts Principales
 
-- `install_gateway_v10.sh` - Script principal de instalación
-- `network_monitor.sh` - Monitor de configuración de red
-- `network-monitor.service` - Servicio systemd para monitoreo
+- `install_gateway_v10.sh` - **Script principal** de instalación completa
+- `network_monitor.sh` - Monitor de configuración de red  
+- `network-monitor.service` - Servicio systemd para monitoreo de red
+
+### Sistema de Monitoreo 24/7
+
+- `services/telegram_notifier.py` - **Bot Telegram** y sistema de notificaciones
+- `services/tailscale_monitor.py` - **Monitor Tailscale** con auto-reconnect
+- `services/system_watchdog.py` - **Watchdog del sistema** con auto-recovery
+- `services/health_monitor.py` - **Monitor de salud** y reportes automáticos
+
+### Scripts de Optimización
+
+- `scripts/optimize_pi.sh` - **Optimizaciones Raspberry Pi 3B+**
+- `scripts/setup_monitoring.sh` - **Configuración del monitoreo completo**
+- `scripts/install_services.sh` - **Instalación de servicios de monitoreo**
+
+### Configuración
+
+- `config/telegram.conf` - Configuración del bot Telegram
+- `config/tailscale.conf` - Configuración de Tailscale VPN
+- `config/monitoring.conf` - Configuración del sistema de monitoreo
 
 ### Aplicación Web
 
-- `pi@raspberrypi~access_control_syste.txt` - Aplicación Flask con funcionalidades de red
+- `pi@raspberrypi~access_control_syste.txt` - Aplicación Flask principal
 
-### APIs de Red Añadidas
+### APIs de Red
 
 - `GET /api/system/network-status` - Estado actual de la red
-- `POST /api/system/network-change` - Notificaciones de cambio
+- `POST /api/system/network-change` - Notificaciones de cambio  
 - `POST /api/system/network-force-dhcp` - Forzar cambio a DHCP
 
 ## Instalación
