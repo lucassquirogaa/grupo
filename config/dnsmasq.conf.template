@@ -1,0 +1,53 @@
+# dnsmasq configuration for ControlsegConfig AP
+# DHCP server configuration for Access Point mode
+
+# Interface to bind to
+interface=wlan0
+
+# Listen on this interface only
+bind-interfaces
+
+# Don't forward requests from this interface upstream
+no-resolv
+
+# Set domain for this network
+domain=controlseg.local
+
+# DHCP settings
+dhcp-range=192.168.4.50,192.168.4.150,255.255.255.0,24h
+
+# Set gateway (this AP)
+dhcp-option=3,192.168.4.100
+
+# Set DNS servers (Google DNS as upstream)
+dhcp-option=6,8.8.8.8,8.8.4.4
+
+# Set the default route
+dhcp-option=121,0.0.0.0/0,192.168.4.100
+
+# Broadcast address
+dhcp-option=28,192.168.4.255
+
+# Enable logging
+log-queries
+log-dhcp
+
+# Cache size
+cache-size=300
+
+# Don't read /etc/hosts
+no-hosts
+
+# Don't read /etc/resolv.conf
+no-resolv
+
+# Set upstream DNS servers
+server=8.8.8.8
+server=8.8.4.4
+
+# Local domain
+local=/controlseg.local/
+
+# Address for local domain
+address=/gateway.controlseg.local/192.168.4.100
+address=/portal.controlseg.local/192.168.4.100

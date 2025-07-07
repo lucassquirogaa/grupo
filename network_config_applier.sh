@@ -69,29 +69,35 @@ log_success() {
 check_wifi_configured() {
     log_info "Verificando configuración WiFi existente..."
     
-    # Verificar si hay conexiones WiFi configuradas en NetworkManager
-    if command -v nmcli >/dev/null 2>&1; then
-        local wifi_connections=$(nmcli -t -f NAME,TYPE connection show | grep ":wifi$" | wc -l)
-        if [ "$wifi_connections" -gt 0 ]; then
-            # Verificar si alguna conexión WiFi está actualmente conectada
-            local active_wifi=$(nmcli -t -f ACTIVE,TYPE connection show | grep ":wifi$" | grep "^yes:" | wc -l)
-            if [ "$active_wifi" -gt 0 ]; then
-                log_info "Encontrada conexión WiFi activa"
-                return 0
-            else
-                log_info "Conexiones WiFi configuradas pero no activas"
-                return 1
-            fi
+    # Verificar si hay archivo de configuración WiFi cliente
+    if [ -f "$CONFIG_DIR/wifi_client.conf" ] && [ -s "$CONFIG_DIR/wifi_client.conf" ]; then
+        log_info "Encontrada configuración WiFi cliente guardada"
+        return 0
+    fi
+    
+    # Verificar si wpa_supplicant tiene configuraciones activas
+    if [ -f "/etc/wpa_supplicant/wpa_supplicant.conf" ]; then
+        if grep -q "network={" "/etc/wpa_supplicant/wpa_supplicant.conf" 2>/dev/null; then
+            log_info "Encontrada configuración en wpa_supplicant"
+            return 0
         fi
     fi
     
-    # Verificar si wlan0 está activo y conectado
+    # Verificar si hay procesos wpa_supplicant activos con conexión
+    if command -v wpa_cli >/dev/null 2>&1; then
+        if wpa_cli -i wlan0 status 2>/dev/null | grep -q "wpa_state=COMPLETED"; then
+            log_info "Encontrada conexión WiFi activa"
+            return 0
+        fi
+    fi
+    
+    # Verificar si wlan0 está activo y conectado (método básico)
     if ip link show wlan0 >/dev/null 2>&1; then
         local wlan_status=$(ip link show wlan0 | grep "state UP" || true)
         if [ -n "$wlan_status" ]; then
-            # Verificar si tiene IP asignada
+            # Verificar si tiene IP asignada (no en rango AP)
             local wlan_ip=$(ip addr show wlan0 | grep "inet " | awk '{print $2}' | cut -d/ -f1 | head -1)
-            if [ -n "$wlan_ip" ]; then
+            if [ -n "$wlan_ip" ] && [ "$wlan_ip" != "192.168.4.100" ]; then
                 log_info "WiFi conectado con IP: $wlan_ip"
                 return 0
             fi
@@ -144,8 +150,43 @@ cleanup_network_configuration() {
 # FUNCIONES DE CONFIGURACIÓN DE RED
 # ============================================
 
+setup_networkmanager_ignore_wlan0() {
+    log_info "Configurando NetworkManager para ignorar wlan0..."
+    
+    # Crear archivo de configuración para que NetworkManager ignore wlan0
+    local nm_config_dir="/etc/NetworkManager/conf.d"
+    local nm_config_file="$nm_config_dir/99-unmanaged-wlan0.conf"
+    
+    # Crear directorio si no existe
+    mkdir -p "$nm_config_dir"
+    
+    # Crear configuración para ignorar wlan0
+    cat > "$nm_config_file" << EOF
+# NetworkManager configuration to ignore wlan0
+# This allows hostapd and manual configuration to manage wlan0
+[device]
+wifi.scan-rand-mac-address=no
+
+[keyfile]
+unmanaged-devices=interface-name:wlan0
+EOF
+    
+    # Establecer permisos correctos
+    chmod 644 "$nm_config_file"
+    chown root:root "$nm_config_file"
+    
+    # Reiniciar NetworkManager si está activo
+    if systemctl is-active --quiet NetworkManager; then
+        log_info "Reiniciando NetworkManager..."
+        systemctl reload NetworkManager || systemctl restart NetworkManager
+        sleep 2
+    fi
+    
+    log_success "NetworkManager configurado para ignorar wlan0"
+}
+
 setup_access_point() {
-    log_info "Configurando Access Point WiFi para setup inicial..."
+    log_info "Configurando Access Point WiFi con hostapd + dnsmasq..."
     
     local ap_ssid="ControlsegConfig"
     local ap_password="Grupo1598"
@@ -161,61 +202,28 @@ setup_access_point() {
     
     log_info "Interfaz wlan0 detectada correctamente"
     
-    # Detener conexiones WiFi existentes
-    log_info "Deteniendo conexiones WiFi existentes..."
-    nmcli device disconnect wlan0 2>/dev/null || true
-    
-    # Eliminar conexiones WiFi existentes que puedan interferir
-    nmcli connection show | grep wifi | awk '{print $1}' | while read conn; do
-        if [ "$conn" != "$ap_ssid" ]; then
-            log_info "Eliminando conexión WiFi existente: $conn"
-            nmcli connection delete "$conn" 2>/dev/null || true
-        fi
-    done
-    
-    # Verificar si ya existe la conexión del AP
-    if nmcli connection show "$ap_ssid" >/dev/null 2>&1; then
-        log_info "Conexión AP existente encontrada, eliminando..."
-        nmcli connection delete "$ap_ssid" || true
+    # Verificar que los scripts de modo están disponibles
+    local ap_mode_script="$CONFIG_DIR/../scripts/ap_mode.sh"
+    if [ ! -x "$ap_mode_script" ]; then
+        log_error "Script de modo AP no encontrado o no ejecutable: $ap_mode_script"
+        return 1
     fi
     
-    log_info "Creando Access Point: $ap_ssid"
+    # Configurar NetworkManager para ignorar wlan0
+    log_info "Configurando NetworkManager para ignorar wlan0..."
+    setup_networkmanager_ignore_wlan0
     
-    # Crear la conexión hotspot
-    nmcli connection add \
-        type wifi \
-        ifname wlan0 \
-        con-name "$ap_ssid" \
-        autoconnect yes \
-        ssid "$ap_ssid" \
-        mode ap \
-        802-11-wireless.band bg \
-        802-11-wireless.channel 1 \
-        wifi-sec.key-mgmt wpa-psk \
-        wifi-sec.psk "$ap_password" \
-        ipv4.method shared \
-        ipv4.addresses "$ap_ip/24" || {
-        log_error "Error creando configuración del Access Point"
-        return 1
-    }
-    
-    # Activar el Access Point
-    log_info "Activando Access Point..."
-    nmcli connection up "$ap_ssid" || {
-        log_error "Error activando Access Point"
-        return 1
-    }
-    
-    # Verificar que el AP esté funcionando
-    sleep 5
-    if nmcli device status | grep wlan0 | grep -q "connected"; then
+    # Ejecutar script de modo AP
+    log_info "Ejecutando script de modo Access Point..."
+    if "$ap_mode_script"; then
         log_success "Access Point creado exitosamente"
         log_info "SSID: $ap_ssid"
         log_info "Contraseña: $ap_password"
         log_info "IP: $ap_ip"
+        log_info "DHCP Range: 192.168.4.50-150"
         return 0
     else
-        log_error "Access Point no está funcionando correctamente"
+        log_error "Error ejecutando script de modo Access Point"
         return 1
     fi
 }

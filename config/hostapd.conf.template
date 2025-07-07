@@ -1,0 +1,36 @@
+# hostapd configuration for ControlsegConfig AP
+# Robust Access Point configuration for Raspberry Pi
+interface=wlan0
+driver=nl80211
+
+# Network settings
+ssid=ControlsegConfig
+hw_mode=g
+channel=1
+ieee80211n=1
+wmm_enabled=1
+
+# Security settings
+auth_algs=1
+ignore_broadcast_ssid=0
+wpa=2
+wpa_passphrase=Grupo1598
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=TKIP
+rsn_pairwise=CCMP
+
+# Country code (adjust as needed)
+country_code=AR
+
+# Logging
+logger_syslog=-1
+logger_syslog_level=2
+logger_stdout=-1
+logger_stdout_level=2
+
+# Additional robustness settings
+beacon_int=100
+dtim_period=2
+max_num_sta=10
+rts_threshold=2347
+fragm_threshold=2346
