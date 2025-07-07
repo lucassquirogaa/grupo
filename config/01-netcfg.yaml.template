@@ -1,0 +1,14 @@
+# NetworkManager configuration to ignore wlan0
+# This prevents NetworkManager from managing the WiFi interface
+# when using hostapd + dnsmasq for AP mode
+
+network:
+  version: 2
+  renderer: NetworkManager
+  wifis:
+    wlan0:
+      # Leave empty - this tells NetworkManager to ignore this interface
+      # The interface will be managed manually by hostapd/dhcpcd
+      match:
+        name: wlan0
+      # No configuration means NetworkManager won't touch it

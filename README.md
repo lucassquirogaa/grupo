@@ -6,10 +6,18 @@ Sistema completo de gateway con monitoreo 24/7 optimizado para Raspberry Pi 3B+ 
 
 ### Características Principales
 
-#### 🌐 **Red Inteligente con Configuración Diferida** ⭐ NUEVO
+#### 🌐 **Sistema WiFi Robusto con hostapd + dnsmasq** ⭐ NUEVO
+- **Access Point robusto** con hostapd en lugar de NetworkManager
+- **DHCP confiable** con dnsmasq para el rango 192.168.4.50-150
+- **Monitoreo automático** de conectividad WiFi con auto-recuperación
+- **Cambio automático de modo** entre AP y cliente según configuración
+- **NetworkManager deshabilitado** en wlan0 para máxima estabilidad
+- **Configuración plug&play** sin intervención manual
+- **Recovery automático** a modo AP si se pierde conexión cliente
+
+#### 🌐 **Red Inteligente con Configuración Diferida**
 - **Configuración diferida de red** - Evita desconexiones SSH durante instalación
 - **Aplicación automática después del reinicio** para máxima estabilidad
-- **Access Point automático** con SSID "ControlsegConfig" cuando no hay WiFi configurado
 - **Detección automática de WiFi** configurado y conectado
 - **Cambio automático a DHCP** después de configurar WiFi exitosamente
 - **Limpieza automática de red** para evitar conflictos de rutas y IPs duplicadas
@@ -66,23 +74,38 @@ sudo ./install_gateway_v10.sh
 ```
 
 **El script ejecuta automáticamente:**
-1. **Instalación de dependencias** (Python, systemd, red, hostapd, dnsmasq)
+1. **Instalación de dependencias** (Python, systemd, red, hostapd, dnsmasq, iptables)
 2. **Identificación del edificio** (prompt interactivo para ubicación)
-3. **Configuración de red inteligente** (limpieza, estática/AP → WiFi → DHCP)
+3. **Configuración WiFi robusta** con hostapd + dnsmasq (reemplaza NetworkManager)
 4. **Setup del entorno Python** con virtual environment
 5. **Instalación y configuración de Tailscale** (automática con hostname personalizado)
 6. **Instalación del servicio principal** de control de acceso
-7. **Optimizaciones Raspberry Pi 3B+** (memoria, CPU, storage)
-8. **Configuración monitoreo 24/7** (Telegram, Tailscale, watchdog)
+7. **Servicios de monitoreo WiFi** (cambio automático de modo AP/cliente)
+8. **Optimizaciones Raspberry Pi 3B+** (memoria, CPU, storage)
+9. **Configuración monitoreo 24/7** (Telegram, Tailscale, watchdog)
 
-### 2. Configuración de Red Automática
+### 2. Sistema WiFi Robusto
+
+#### Modo Access Point (Sin WiFi configurado):
+- **Tecnología**: hostapd + dnsmasq (no NetworkManager)
+- **SSID**: `ControlsegConfig`
+- **Contraseña**: `Grupo1598`
+- **Gateway**: `192.168.4.100`
+- **DHCP**: `192.168.4.50-150`
+- **DNS**: `8.8.8.8, 8.8.4.4`
+- **Portal**: `http://192.168.4.100:8080`
+
+#### Modo Cliente WiFi (Con configuración):
+- **Tecnología**: wpa_supplicant + dhcpcd
+- **Configuración**: Via portal web
+- **Auto-switch**: Automático al guardar config
+- **Recovery**: Vuelve a AP si pierde conexión
+- **Monitoreo**: Continuo cada 30 segundos
+
+### 3. Configuración Ethernet Automática
 
 #### Sin WiFi configurado:
 - **IP estática ethernet**: `192.168.4.100/24`
-- **Access Point WiFi**: 
-  - SSID: `ControlsegConfig`
-  - Contraseña: `Grupo1598`
-  - IP Gateway: `192.168.4.100`
 - **Acceso web**: `http://192.168.4.100:8080`
 - **Portal de configuración** accesible vía WiFi AP o ethernet
 
@@ -90,9 +113,8 @@ sudo ./install_gateway_v10.sh
 - **Ethernet**: DHCP automático  
 - **WiFi**: Conexión a red del edificio
 - **Tailscale**: Acceso remoto seguro con hostname personalizado
-- **AP desactivado** automáticamente
 
-### 3. Monitoreo Automático 24/7
+### 4. Monitoreo Automático 24/7
 
 - **Notificaciones Telegram** en tiempo real
 - **Health checks** continuos del sistema
@@ -105,8 +127,30 @@ sudo ./install_gateway_v10.sh
 ### Scripts Principales
 
 - `install_gateway_v10.sh` - **Script principal** de instalación completa
+- `network_config_applier.sh` - Aplicador de configuración de red diferida
 - `network_monitor.sh` - Monitor de configuración de red  
-- `network-monitor.service` - Servicio systemd para monitoreo de red
+
+### Sistema WiFi Robusto
+
+- `scripts/ap_mode.sh` - **Cambio a modo Access Point** con hostapd + dnsmasq
+- `scripts/client_mode.sh` - **Cambio a modo cliente WiFi** con wpa_supplicant
+- `scripts/wifi_mode_monitor.sh` - **Monitor automático** de modo WiFi
+- `scripts/wifi_config_manager.sh` - **Gestor de configuraciones** WiFi cliente
+- `scripts/web_wifi_api.sh` - **API helper** para portal web
+- `scripts/patch_web_portal.sh` - **Patcher** para migrar portal web
+
+### Servicios SystemD
+
+- `network-config-applier.service` - Aplicación de configuración de red al boot
+- `wifi-mode-monitor.service` - **Monitoreo continuo** de modo WiFi
+- `network-monitor.service` - Monitoreo general de red
+
+### Configuración WiFi
+
+- `config/hostapd.conf.template` - **Plantilla hostapd** para modo AP
+- `config/dnsmasq.conf.template` - **Plantilla dnsmasq** para DHCP
+- `config/dhcpcd.conf.backup` - **Backup dhcpcd** para modo cliente
+- `config/01-netcfg.yaml.template` - **NetworkManager** ignora wlan0
 
 ### Sistema de Monitoreo 24/7
 
