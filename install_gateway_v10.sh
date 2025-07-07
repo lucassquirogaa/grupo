@@ -249,8 +249,12 @@ setup_access_point() {
     # Verificar que wlan0 esté disponible
     if ! ip link show wlan0 >/dev/null 2>&1; then
         log_error "Interfaz wlan0 no encontrada - no se puede crear Access Point"
+        log_error "Verifique que el dispositivo WiFi esté conectado y funcionando"
+        log_error "Ejecute 'ip link show' para ver interfaces disponibles"
         return 1
     fi
+    
+    log_info "Interfaz wlan0 detectada correctamente"
     
     # Detener conexiones WiFi existentes
     log_info "Deteniendo conexiones WiFi existentes..."
@@ -278,14 +282,14 @@ setup_access_point() {
         ifname wlan0 \
         con-name "$ap_ssid" \
         autoconnect yes \
-        wifi.mode ap \
-        wifi.ssid "$ap_ssid" \
-        wifi.security wpa-psk \
-        wifi.psk "$ap_password" \
+        ssid "$ap_ssid" \
+        mode ap \
+        802-11-wireless.band bg \
+        802-11-wireless.channel 1 \
+        wifi-sec.key-mgmt wpa-psk \
+        wifi-sec.psk "$ap_password" \
         ipv4.method shared \
-        ipv4.addresses "$ap_ip/24" \
-        ipv4.gateway "$ap_ip" \
-        ipv4.dns "8.8.8.8" || {
+        ipv4.addresses "$ap_ip/24" || {
         log_error "Error creando configuración del Access Point"
         return 1
     }
