@@ -1,0 +1,67 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Installation artifacts
+instance/
+temp/
+tmp/
+
+# Backups
+*.backup
+*.bak
+*.orig
+
+# Node modules (if any)
+node_modules/
+
+# Runtime files
+*.pid
+*.sock
+*.state
+*.json.tmp
+
+# Configuration overrides (keep templates)
+config/*.local.conf
+config/*.override.conf
