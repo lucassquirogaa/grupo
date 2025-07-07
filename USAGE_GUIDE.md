@@ -1,6 +1,22 @@
 # Guía de Uso - Gateway v10.3
 
-## Nuevas Características Implementadas
+## Características Principales
+
+### 🚀 **NUEVA: Configuración de Red Diferida**
+
+⚠️ **CAMBIO IMPORTANTE**: A partir de la v10.3, la configuración de red se aplica **DESPUÉS del reinicio** para evitar desconexiones SSH durante la instalación.
+
+#### Flujo de Instalación:
+1. **Durante la Instalación**: Se prepara la configuración de red sin aplicar cambios
+2. **Mensaje Claro**: Se informa que los cambios se aplicarán después del reinicio
+3. **Reinicio**: Se ejecuta `sudo reboot` cuando esté listo
+4. **Aplicación Automática**: La configuración se aplica automáticamente al iniciar
+
+#### Beneficios:
+- ✅ SSH no se desconecta durante la instalación
+- ✅ Instalación completamente exitosa sin interrupciones
+- ✅ Control total del momento del reinicio
+- ✅ Logs completos de todo el proceso
 
 ### 1. 🏢 Identificación de Edificio
 
@@ -27,9 +43,9 @@ Dirección/Nombre del edificio: _
 - Se usa para generar hostname único en Tailscale
 - Permite cambio posterior si ya existe
 
-### 2. 📶 Access Point Automático
+### 2. 📶 Access Point Automático (Aplicado después del reinicio)
 
-Cuando **NO** hay WiFi configurado, se crea automáticamente:
+Cuando **NO** hay WiFi configurado, se programa la creación automática de:
 
 **Configuración del AP:**
 - **SSID**: `ControlsegConfig`
@@ -38,11 +54,12 @@ Cuando **NO** hay WiFi configurado, se crea automáticamente:
 - **Red**: `192.168.4.0/24`
 - **DNS**: `8.8.8.8`
 
-**Para usar:**
-1. Buscar red WiFi `ControlsegConfig`
-2. Conectar con contraseña `Grupo1598`
-3. Ir a `http://192.168.4.100:8080`
-4. Configurar WiFi principal desde el portal
+**Para usar después del reinicio:**
+1. Reiniciar: `sudo reboot`
+2. Buscar red WiFi `ControlsegConfig`
+3. Conectar con contraseña `Grupo1598`
+4. Ir a `http://192.168.4.100:8080`
+5. Configurar WiFi principal desde el portal
 
 ### 3. 🔒 Tailscale Integrado
 
@@ -96,9 +113,10 @@ sudo ./install_gateway_v10.sh
    - Prompt interactivo para ubicación
    - Validación y almacenamiento
 
-3. **PASO 3**: Configuración de red
-   - Limpieza de configuraciones conflictivas
-   - AP si no hay WiFi / DHCP si hay WiFi
+3. **PASO 3**: Configuración de red (DIFERIDA)
+   - Preparación sin aplicar cambios inmediatamente
+   - Configuración de servicio para aplicar después del reinicio
+   - AP si no hay WiFi / DHCP si hay WiFi (aplicado tras reinicio)
 
 4. **PASO 4**: Entorno Python
    - Virtual environment y dependencias
@@ -118,13 +136,19 @@ sudo ./install_gateway_v10.sh
 
 ## Escenarios de Uso
 
-### Escenario 1: Instalación Nueva (Sin WiFi)
+### Escenario 1: Instalación Nueva (Sin WiFi) - CON CONFIGURACIÓN DIFERIDA
 
 ```
-🔧 Instalación detecta: No hay WiFi configurado
-📶 Se crea Access Point: ControlsegConfig
-🌐 IP ethernet: 192.168.4.100
-📱 Portal: http://192.168.4.100:8080
+🔧 Durante la instalación:
+   ✅ Instalación detecta: No hay WiFi configurado
+   ✅ Se prepara configuración: IP estática + Access Point
+   ⚠️  NO se aplican cambios inmediatamente
+   📋 Mensaje: Configuración se aplicará después del reinicio
+
+🔄 Después de 'sudo reboot':
+   ✅ Se aplica IP estática: 192.168.4.100
+   ✅ Se crea Access Point: ControlsegConfig
+   📱 Portal disponible: http://192.168.4.100:8080
 
 Usuario:
 1. Conecta a ControlsegConfig (password: Grupo1598)
@@ -133,13 +157,20 @@ Usuario:
 4. Sistema cambia automáticamente a DHCP
 ```
 
-### Escenario 2: Instalación con WiFi Existente
+### Escenario 2: Instalación con WiFi Existente - CON CONFIGURACIÓN DIFERIDA
 
 ```
-🔧 Instalación detecta: WiFi ya configurado
-🌐 Configura ethernet en DHCP
-📶 No crea Access Point
-🔒 Instala Tailscale con hostname personalizado
+🔧 Durante la instalación:
+   ✅ Instalación detecta: WiFi ya configurado
+   ✅ Se prepara configuración: DHCP en ethernet
+   ⚠️  NO se aplican cambios inmediatamente
+   📋 Mensaje: Configuración se aplicará después del reinicio
+
+🔄 Después de 'sudo reboot':
+   ✅ Se aplica configuración DHCP
+   🌐 IP asignada automáticamente por router
+   📶 No se crea Access Point
+   🔒 Tailscale activo con hostname personalizado
 ```
 
 ## Verificación Post-Instalación
@@ -153,6 +184,14 @@ gateway-status
 # Estado de servicios específicos
 systemctl status access_control.service
 systemctl status network-monitor.service
+systemctl status network-config-applier.service
+
+# Verificar si hay configuración de red pendiente
+ls -la /opt/gateway/pending_network_config/
+
+# Ver logs de aplicación de configuración de red
+journalctl -u network-config-applier.service
+tail -f /var/log/network_config_applier.log
 
 # Información de Tailscale
 tailscale status

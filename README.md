@@ -6,13 +6,15 @@ Sistema completo de gateway con monitoreo 24/7 optimizado para Raspberry Pi 3B+ 
 
 ### Características Principales
 
-#### 🌐 **Red Inteligente**
-- **Configuración automática de IP estática** para setup inicial con modem TP-Link
+#### 🌐 **Red Inteligente con Configuración Diferida** ⭐ NUEVO
+- **Configuración diferida de red** - Evita desconexiones SSH durante instalación
+- **Aplicación automática después del reinicio** para máxima estabilidad
 - **Access Point automático** con SSID "ControlsegConfig" cuando no hay WiFi configurado
 - **Detección automática de WiFi** configurado y conectado
 - **Cambio automático a DHCP** después de configurar WiFi exitosamente
 - **Limpieza automática de red** para evitar conflictos de rutas y IPs duplicadas
 - **Monitoreo continuo de red** para transiciones automáticas
+- **Control total del momento del reinicio** para aplicar cambios de red
 
 #### 🏢 **Identificación de Edificio**
 - **Prompt interactivo** para identificar la ubicación del gateway
@@ -187,12 +189,14 @@ IP Gateway: 192.168.4.100
 DNS: 8.8.8.8
 ```
 
-**Para configurar WiFi principal:**
-1. Conecte a la red WiFi: `ControlsegConfig`
-2. Use la contraseña: `Grupo1598`
-3. Abra el navegador en: `http://192.168.4.100:8080`
-4. Configure su red WiFi del edificio
-5. El sistema cambiará automáticamente a esa red
+**Para configurar WiFi principal (después del reinicio):**
+1. Ejecute: `sudo reboot`
+2. Espere a que se aplique la configuración automáticamente
+3. Conecte a la red WiFi: `ControlsegConfig`
+4. Use la contraseña: `Grupo1598`
+5. Abra el navegador en: `http://192.168.4.100:8080`
+6. Configure su red WiFi del edificio
+7. El sistema cambiará automáticamente a esa red
 
 ### Configuración Final (Post-WiFi)
 
@@ -210,8 +214,10 @@ Access Point: Desactivado automáticamente
 
 - `/var/log/gateway_install.log` - Log de instalación
 - `/var/log/network_monitor.log` - Log del monitor de red
+- `/var/log/network_config_applier.log` - Log de aplicación de configuración de red
 - `journalctl -u access_control.service` - Log del servicio principal
 - `journalctl -u network-monitor.service` - Log del monitor
+- `journalctl -u network-config-applier.service` - Log del aplicador de configuración
 
 ### Comandos de Diagnóstico
 
