@@ -8,9 +8,16 @@ Sistema completo de gateway con monitoreo 24/7 optimizado para Raspberry Pi 3B+ 
 
 #### 🌐 **Red Inteligente**
 - **Configuración automática de IP estática** para setup inicial con modem TP-Link
-- **Detección automática de WiFi** configurado
+- **Access Point automático** con SSID "ControlsegConfig" cuando no hay WiFi configurado
+- **Detección automática de WiFi** configurado y conectado
 - **Cambio automático a DHCP** después de configurar WiFi exitosamente
+- **Limpieza automática de red** para evitar conflictos de rutas y IPs duplicadas
 - **Monitoreo continuo de red** para transiciones automáticas
+
+#### 🏢 **Identificación de Edificio**
+- **Prompt interactivo** para identificar la ubicación del gateway
+- **Almacenamiento persistente** en `/opt/gateway/building_address.txt`
+- **Integración con Tailscale** para hostnames únicos por ubicación
 
 #### 📱 **Sistema de Notificaciones Telegram**
 - **Bot Token**: `7954949854:AAHjEYMdvJ9z2jD8pV7fGsI0a6ipTjJHR2M`
@@ -19,7 +26,9 @@ Sistema completo de gateway con monitoreo 24/7 optimizado para Raspberry Pi 3B+ 
 - **Bot interactivo** con comandos de control remoto
 
 #### 🔒 **Integración Tailscale Completa**
-- **Auto-instalación** durante el setup del gateway
+- **Auto-instalación** durante el setup del gateway usando script oficial
+- **Autenticación automática** con clave predefinida
+- **Hostname personalizado** basado en la dirección del edificio
 - **Monitor de conexiones** en tiempo real con logging de accesos
 - **Auto-reconexión** automática si se pierde conexión
 - **Gestión de usuarios** y notificaciones de acceso
@@ -55,24 +64,31 @@ sudo ./install_gateway_v10.sh
 ```
 
 **El script ejecuta automáticamente:**
-1. **Instalación de dependencias** (Python, systemd, red)
-2. **Configuración de red inteligente** (estática → WiFi → DHCP)
-3. **Setup del entorno Python** con virtual environment
-4. **Instalación del servicio principal** de control de acceso
-5. **Optimizaciones Raspberry Pi 3B+** (memoria, CPU, storage)
-6. **Configuración monitoreo 24/7** (Telegram, Tailscale, watchdog)
+1. **Instalación de dependencias** (Python, systemd, red, hostapd, dnsmasq)
+2. **Identificación del edificio** (prompt interactivo para ubicación)
+3. **Configuración de red inteligente** (limpieza, estática/AP → WiFi → DHCP)
+4. **Setup del entorno Python** con virtual environment
+5. **Instalación y configuración de Tailscale** (automática con hostname personalizado)
+6. **Instalación del servicio principal** de control de acceso
+7. **Optimizaciones Raspberry Pi 3B+** (memoria, CPU, storage)
+8. **Configuración monitoreo 24/7** (Telegram, Tailscale, watchdog)
 
 ### 2. Configuración de Red Automática
 
-1. **Sin WiFi configurado**: 
-   - IP estática: `192.168.4.100/24`
-   - Gateway: `192.168.4.1`
-   - Acceso web: `http://192.168.4.100:8080`
+#### Sin WiFi configurado:
+- **IP estática ethernet**: `192.168.4.100/24`
+- **Access Point WiFi**: 
+  - SSID: `ControlsegConfig`
+  - Contraseña: `Grupo1598`
+  - IP Gateway: `192.168.4.100`
+- **Acceso web**: `http://192.168.4.100:8080`
+- **Portal de configuración** accesible vía WiFi AP o ethernet
 
-2. **Con WiFi configurado**:
-   - Ethernet: DHCP automático  
-   - WiFi: Conexión a red del edificio
-   - Tailscale: Acceso remoto seguro
+#### Con WiFi configurado:
+- **Ethernet**: DHCP automático  
+- **WiFi**: Conexión a red del edificio
+- **Tailscale**: Acceso remoto seguro con hostname personalizado
+- **AP desactivado** automáticamente
 
 ### 3. Monitoreo Automático 24/7
 
@@ -157,21 +173,35 @@ sudo ./network_monitor.sh status
 
 ### Configuración TP-Link (Setup Inicial)
 
+**Configuración automática:**
 ```bash
-# Configuración automática
+# Configuración ethernet
 Interface: eth0
 IP: 192.168.4.100/24
-Gateway: 192.168.4.1
-DNS: 8.8.8.8, 8.8.4.4
+Gateway: 192.168.4.100
+
+# Configuración Access Point WiFi
+SSID: ControlsegConfig
+Contraseña: Grupo1598
+IP Gateway: 192.168.4.100
+DNS: 8.8.8.8
 ```
+
+**Para configurar WiFi principal:**
+1. Conecte a la red WiFi: `ControlsegConfig`
+2. Use la contraseña: `Grupo1598`
+3. Abra el navegador en: `http://192.168.4.100:8080`
+4. Configure su red WiFi del edificio
+5. El sistema cambiará automáticamente a esa red
 
 ### Configuración Final (Post-WiFi)
 
+**Configuración automática después de WiFi:**
 ```bash
-# Configuración automática después de WiFi
 Interface: eth0 - DHCP
 Interface: wlan0 - WiFi del edificio
-Interface: tailscale0 - Red Tailscale
+Interface: tailscale0 - Red Tailscale (hostname personalizado)
+Access Point: Desactivado automáticamente
 ```
 
 ## Monitoreo y Logs
@@ -307,7 +337,30 @@ sudo nmcli connection modify "Wired connection 1" \
 
 ## Versión
 
-**Versión**: 10.1  
+**Versión**: 10.3  
 **Fecha**: 2024  
 **Autor**: Sistema PCT  
 **Repositorio**: https://github.com/lucassquirogaa/grupo
+
+### Changelog v10.3
+
+#### Nuevas Características
+- ✅ **Access Point automático** cuando no hay WiFi configurado
+- ✅ **Identificación de edificio** con prompt interactivo  
+- ✅ **Integración Tailscale** con hostname personalizado
+- ✅ **Limpieza automática de red** para evitar conflictos
+- ✅ **Detección WiFi mejorada** con verificación de conectividad real
+
+#### Mejoras Técnicas
+- 🔧 Limpieza de rutas estáticas conflictivas y gateways duplicados
+- 🔧 Validación de IPs múltiples en interfaces
+- 🔧 Instalación automática de Tailscale con clave predefinida
+- 🔧 Hostname basado en dirección del edificio
+- 🔧 Dependencias adicionales: hostapd, dnsmasq, iptables
+
+#### Flujo Mejorado
+1. Prompt de identificación del edificio
+2. Limpieza de configuración de red
+3. Access Point si no hay WiFi / DHCP si hay WiFi
+4. Instalación y configuración automática de Tailscale
+5. Configuración completa del sistema de monitoreo
