@@ -30,7 +30,12 @@ log_message() {
     local level=$1
     local message=$2
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$timestamp] [WIFI_CONFIG] [$level] $message" | tee -a "$LOG_FILE"
+    # Only log to file if we have permission, otherwise just echo
+    if touch "$LOG_FILE" 2>/dev/null; then
+        echo "[$timestamp] [WIFI_CONFIG] [$level] $message" | tee -a "$LOG_FILE"
+    else
+        echo "[$timestamp] [WIFI_CONFIG] [$level] $message"
+    fi
 }
 
 log_info() {
@@ -285,7 +290,13 @@ main() {
     local command="$1"
     
     # Create config directory if it doesn't exist
-    mkdir -p "$CONFIG_DIR"
+    mkdir -p "$CONFIG_DIR" 2>/dev/null || true
+    
+    # Show usage if no command provided
+    if [ -z "$command" ]; then
+        show_usage
+        exit 0
+    fi
     
     case "$command" in
         "save")
