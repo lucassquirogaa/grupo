@@ -25,6 +25,7 @@ SCRIPT_VERSION="10.3"
 LOG_FILE="/var/log/gateway_install.log"
 CONFIG_DIR="/opt/gateway"
 SERVICE_NAME="access_control.service"
+PENDING_CONFIG_DIR="$CONFIG_DIR/pending_network_config"
 
 # Configuración de red
 STATIC_IP="192.168.4.100"
@@ -688,50 +689,135 @@ EOF
 }
 
 # ============================================
+# FUNCIONES DE CONFIGURACIÓN DIFERIDA
+# ============================================
+
+prepare_deferred_network_configuration() {
+    log_info "Preparando configuración de red diferida..."
+    
+    # Crear directorio para configuración pendiente
+    mkdir -p "$PENDING_CONFIG_DIR"
+    
+    # Verificar si WiFi está configurado y conectado
+    if check_wifi_configured; then
+        log_info "WiFi configurado y conectado - preparando configuración DHCP"
+        echo "dhcp" > "$PENDING_CONFIG_DIR/config_type"
+        log_info "Configuración DHCP programada para aplicar después del reinicio"
+    else
+        log_info "WiFi no configurado - preparando configuración estática + Access Point"
+        
+        # Verificar si se puede crear Access Point
+        if ip link show wlan0 >/dev/null 2>&1; then
+            echo "static_ap" > "$PENDING_CONFIG_DIR/config_type"
+            log_info "Configuración estática + Access Point programada para aplicar después del reinicio"
+        else
+            echo "static_only" > "$PENDING_CONFIG_DIR/config_type"
+            log_warn "wlan0 no disponible - solo configuración estática programada"
+        fi
+    fi
+    
+    # Instalar servicio de aplicación de configuración
+    install_network_config_applier_service
+    
+    log_success "Configuración de red diferida preparada exitosamente"
+    return 0
+}
+
+install_network_config_applier_service() {
+    log_info "Instalando servicio de aplicación de configuración de red..."
+    
+    # Crear servicio systemd para aplicador de configuración de red
+    cat > /etc/systemd/system/network-config-applier.service << EOF
+[Unit]
+Description=Network Configuration Applier
+Documentation=man:systemd.service(5)
+After=network.target NetworkManager.service
+Wants=network-online.target
+ConditionPathExists=$PENDING_CONFIG_DIR
+
+[Service]
+Type=oneshot
+ExecStart=$CONFIG_DIR/network_config_applier.sh
+RemainAfterExit=no
+User=root
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/log $CONFIG_DIR /etc/network /etc/systemd
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # Copiar script aplicador al directorio de configuración
+    cp "$(dirname "$0")/network_config_applier.sh" "$CONFIG_DIR/" 2>/dev/null || {
+        log_error "network_config_applier.sh no encontrado en el directorio actual"
+        return 1
+    }
+    
+    # Hacer ejecutable el script
+    chmod +x "$CONFIG_DIR/network_config_applier.sh"
+    
+    # Recargar systemd y habilitar servicio
+    systemctl daemon-reload
+    systemctl enable network-config-applier.service
+    
+    log_success "Servicio de aplicación de configuración de red instalado"
+    return 0
+}
+
+# ============================================
 # FUNCIÓN PRINCIPAL DE CONFIGURACIÓN DE RED
 # ============================================
 
 configure_network() {
-    log_info "Iniciando configuración de red..."
+    log_info "Iniciando configuración de red diferida..."
     
-    # Limpiar configuraciones de red conflictivas
-    cleanup_network_configuration
+    # Crear directorio de configuración si no existe
+    mkdir -p "$CONFIG_DIR"
     
-    # Verificar si WiFi está configurado y conectado
-    if check_wifi_configured; then
-        log_info "WiFi configurado y conectado - usando DHCP en ethernet"
-        configure_dhcp
-    else
-        log_info "WiFi no configurado - configurando Access Point para setup inicial"
-        
-        # Configurar IP estática en ethernet para acceso local
-        configure_static_ip
-        
-        # Configurar Access Point WiFi
-        if setup_access_point; then
-            log_info "====================================="
-            log_info "CONFIGURACIÓN INICIAL COMPLETADA"
-            log_info "====================================="
-            log_info "🔗 Ethernet IP: $STATIC_IP"
-            log_info "📶 WiFi AP: ControlsegConfig"
-            log_info "🌐 Portal web: http://$STATIC_IP:8080"
-            log_info "📱 Conecte a la red WiFi para configurar"
-            log_info "====================================="
-        else
-            log_warn "No se pudo crear Access Point, solo ethernet disponible"
-            log_info "====================================="
-            log_info "CONFIGURACIÓN BÁSICA COMPLETADA"
-            log_info "====================================="
-            log_info "🔗 IP estática configurada: $STATIC_IP"
-            log_info "🌐 Acceda al portal web en: http://$STATIC_IP:8080"
-            log_info "Configure WiFi desde el portal web"
-            log_info "====================================="
-        fi
+    # Preparar configuración de red diferida (sin aplicar cambios inmediatamente)
+    prepare_deferred_network_configuration || {
+        log_error "Error preparando configuración de red diferida"
+        return 1
+    }
+    
+    log_info "====================================="
+    log_info "CONFIGURACIÓN DE RED PREPARADA"
+    log_info "====================================="
+    log_info "⚠️  Los cambios de red se aplicarán después del REINICIO"
+    log_info "🔄 La configuración se aplicará automáticamente al iniciar"
+    
+    # Mostrar qué tipo de configuración se aplicará
+    local config_type=""
+    if [ -f "$PENDING_CONFIG_DIR/config_type" ]; then
+        config_type=$(cat "$PENDING_CONFIG_DIR/config_type")
+        case "$config_type" in
+            "dhcp")
+                log_info "📋 Configuración programada: DHCP en ethernet"
+                log_info "🌐 La Pi usará DHCP después del reinicio"
+                ;;
+            "static_ap")
+                log_info "📋 Configuración programada: IP estática + Access Point"
+                log_info "🔗 IP ethernet: $STATIC_IP (después del reinicio)"
+                log_info "📶 WiFi AP: ControlsegConfig (después del reinicio)"
+                log_info "🌐 Portal web: http://$STATIC_IP:8080 (después del reinicio)"
+                ;;
+            "static_only")
+                log_info "📋 Configuración programada: IP estática solamente"
+                log_info "🔗 IP ethernet: $STATIC_IP (después del reinicio)"
+                log_info "🌐 Portal web: http://$STATIC_IP:8080 (después del reinicio)"
+                ;;
+        esac
     fi
     
-    # Validar conectividad
-    sleep 5
-    validate_network_configuration
+    log_info "====================================="
+    
+    return 0
 }
 
 validate_network_configuration() {
@@ -854,18 +940,53 @@ main() {
     echo "SISTEMA GATEWAY 24/7 INSTALADO"
     echo "=========================================="
     echo "🏢 Edificio: $building_address"
-    echo "🌐 IP Ethernet: $current_ip"
-    echo "📶 WiFi AP: $(nmcli device status | grep wlan0 | grep -q "connected" && echo "ControlsegConfig (Activo)" || echo "No configurado")"
+    echo "🌐 IP Ethernet actual: $current_ip"
     echo "🔒 IP Tailscale: $tailscale_ip"
-    echo "🌍 Portal web: http://$current_ip:8080"
     echo "🤖 Bot Telegram: Configurado"
     echo "📊 Monitoreo 24/7: Activo"
+    echo "=========================================="
+    echo ""
+    echo "⚠️  CONFIGURACIÓN DE RED DIFERIDA"
+    echo "=========================================="
+    
+    # Mostrar información sobre configuración diferida
+    local config_type=""
+    if [ -f "$PENDING_CONFIG_DIR/config_type" ]; then
+        config_type=$(cat "$PENDING_CONFIG_DIR/config_type")
+        case "$config_type" in
+            "dhcp")
+                echo "📋 Configuración programada: DHCP en ethernet"
+                echo "🌐 La Pi usará DHCP después del reinicio"
+                echo "🔗 IP será asignada automáticamente por el router"
+                ;;
+            "static_ap")
+                echo "📋 Configuración programada: IP estática + Access Point"
+                echo "🔗 IP ethernet: $STATIC_IP (después del reinicio)"
+                echo "📶 WiFi AP: ControlsegConfig (después del reinicio)"
+                echo "🌐 Portal web: http://$STATIC_IP:8080 (después del reinicio)"
+                echo ""
+                echo "📶 Para configurar WiFi después del reinicio:"
+                echo "  1. Conecte a la red: ControlsegConfig"
+                echo "  2. Contraseña: Grupo1598"
+                echo "  3. Vaya a: http://$STATIC_IP:8080"
+                echo "  4. Configure su red WiFi principal"
+                ;;
+            "static_only")
+                echo "📋 Configuración programada: IP estática solamente"
+                echo "🔗 IP ethernet: $STATIC_IP (después del reinicio)"
+                echo "🌐 Portal web: http://$STATIC_IP:8080 (después del reinicio)"
+                echo "⚠️  wlan0 no disponible - configure WiFi manualmente"
+                ;;
+        esac
+    fi
+    
     echo "=========================================="
     echo ""
     echo "🔧 Comandos útiles:"
     echo "  gateway-status               - Estado completo"
     echo "  systemctl status $SERVICE_NAME"
-    echo "  systemctl status telegram-notifier.service"
+    echo "  systemctl status network-monitor.service"
+    echo "  systemctl status network-config-applier.service"
     echo ""
     echo "📱 Comandos bot Telegram:"
     echo "  /status - Estado del sistema"
@@ -873,16 +994,12 @@ main() {
     echo "  /users  - Usuarios Tailscale conectados"
     echo "  /restart [servicio] - Reinicio remoto"
     echo ""
-    if ! check_wifi_configured; then
-        echo "📶 Para configurar WiFi:"
-        echo "  1. Conecte a la red: ControlsegConfig"
-        echo "  2. Contraseña: Grupo1598"
-        echo "  3. Vaya a: http://$current_ip:8080"
-        echo "  4. Configure su red WiFi principal"
-        echo ""
-    fi
-    echo "⚠️  REINICIO REQUERIDO para aplicar optimizaciones"
-    echo "   Ejecute: sudo reboot"
+    echo "⚠️  REINICIO OBLIGATORIO PARA APLICAR CONFIGURACIÓN"
+    echo "=========================================="
+    echo "🔄 Los cambios de red se aplicarán automáticamente"
+    echo "💡 La conexión SSH actual se mantendrá hasta reiniciar"
+    echo "⏰ Ejecute el reinicio cuando esté listo:"
+    echo "   sudo reboot"
     echo "=========================================="
 }
 
