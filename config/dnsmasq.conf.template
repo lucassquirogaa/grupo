@@ -7,9 +7,6 @@ interface=wlan0
 # Listen on this interface only
 bind-interfaces
 
-# Don't forward requests from this interface upstream
-no-resolv
-
 # Set domain for this network
 domain=controlseg.local
 
@@ -37,9 +34,6 @@ cache-size=300
 
 # Don't read /etc/hosts
 no-hosts
-
-# Don't read /etc/resolv.conf
-no-resolv
 
 # Set upstream DNS servers
 server=8.8.8.8
