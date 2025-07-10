@@ -102,6 +102,27 @@ sudo ./install_gateway_v10.sh
 - **Recovery**: Vuelve a AP si pierde conexión
 - **Monitoreo**: Continuo cada 30 segundos
 
+#### Comandos manuales WiFi:
+```bash
+# Cambiar a modo AP manualmente
+sudo /opt/gateway/scripts/ap_mode.sh
+
+# Cambiar a modo cliente (requiere configuración)
+sudo /opt/gateway/scripts/client_mode.sh
+
+# Ejecutar una verificación del monitor
+sudo /opt/gateway/scripts/wifi_mode_monitor.sh once
+
+# Escanear redes WiFi
+sudo /opt/gateway/scripts/web_wifi_api.sh scan
+
+# Conectar a red WiFi
+sudo /opt/gateway/scripts/web_wifi_api.sh connect "NombreRed" "contraseña"
+
+# Desconectar WiFi (vuelve a modo AP)
+sudo /opt/gateway/scripts/web_wifi_api.sh disconnect
+```
+
 ### 3. Configuración Ethernet Automática
 
 #### Sin WiFi configurado:
@@ -206,13 +227,19 @@ sudo ./install_gateway_v10.sh
 # Estado de servicios
 sudo systemctl status access_control.service
 sudo systemctl status network-monitor.service
+sudo systemctl status wifi-mode-monitor.service
 
 # Logs
 sudo journalctl -u access_control.service -f
 sudo journalctl -u network-monitor.service -f
+sudo journalctl -u wifi-mode-monitor.service -f
 
 # Estado de red
 sudo ./network_monitor.sh status
+
+# Estado WiFi
+cat /opt/gateway/current_wifi_mode
+sudo /opt/gateway/scripts/wifi_mode_monitor.sh once
 ```
 
 ## Configuración de Red
@@ -300,12 +327,42 @@ sudo ./network_monitor.sh status
 
 3. **WiFi no se conecta**
    ```bash
-   # Escanear redes disponibles
-   sudo nmcli dev wifi rescan
-   sudo nmcli dev wifi list
+   # Verificar estado del monitor WiFi
+   sudo systemctl status wifi-mode-monitor.service
    
-   # Intentar conexión manual
-   sudo nmcli dev wifi connect "SSID" password "PASSWORD"
+   # Ver logs del monitor WiFi
+   sudo journalctl -u wifi-mode-monitor.service -f
+   
+   # Verificar modo actual
+   cat /opt/gateway/current_wifi_mode
+   
+   # Escanear redes disponibles (sin nmcli)
+   sudo /opt/gateway/scripts/web_wifi_api.sh scan
+   
+   # Forzar modo AP manualmente
+   sudo /opt/gateway/scripts/ap_mode.sh
+   
+   # Verificar configuración WiFi guardada
+   sudo /opt/gateway/scripts/wifi_config_manager.sh show
+   ```
+
+4. **Access Point no se inicia**
+   ```bash
+   # Verificar hostapd y dnsmasq
+   sudo systemctl status hostapd
+   sudo systemctl status dnsmasq
+   
+   # Ver logs de hostapd
+   sudo journalctl -u hostapd -f
+   
+   # Verificar interfaz wlan0
+   ip link show wlan0
+   
+   # Forzar reinicio de AP
+   sudo /opt/gateway/scripts/ap_mode.sh
+   
+   # Verificar NetworkManager no interfiere
+   cat /etc/NetworkManager/conf.d/99-unmanaged-wlan0.conf
    ```
 
 ### Comandos de Recuperación

@@ -361,7 +361,7 @@ setup_access_point() {
     ensure_hostapd_dnsmasq_templates
     
     # Verificar que los scripts de modo están disponibles
-    local ap_mode_script="$CONFIG_DIR/../scripts/ap_mode.sh"
+    local ap_mode_script="$CONFIG_DIR/scripts/ap_mode.sh"
     if [ ! -x "$ap_mode_script" ]; then
         log_error "Script de modo AP no encontrado o no ejecutable: $ap_mode_script"
         return 1
@@ -844,18 +844,34 @@ EOF
 install_wifi_mode_monitor_service() {
     log_info "Instalando servicio de monitoreo WiFi..."
     
+    # Crear directorio para scripts
+    mkdir -p "$CONFIG_DIR/scripts"
+    
+    # Copiar scripts de WiFi al directorio de configuración
+    local wifi_scripts=(
+        "ap_mode.sh"
+        "client_mode.sh"
+        "wifi_mode_monitor.sh"
+        "wifi_config_manager.sh"
+        "web_wifi_api.sh"
+        "patch_web_portal.sh"
+    )
+    
+    for script in "${wifi_scripts[@]}"; do
+        if [ -f "$PWD/scripts/$script" ]; then
+            cp "$PWD/scripts/$script" "$CONFIG_DIR/scripts/"
+            chmod +x "$CONFIG_DIR/scripts/$script"
+            log_info "Script copiado: $script"
+        else
+            log_warn "Script no encontrado: $PWD/scripts/$script"
+        fi
+    done
+    
     # Copiar el servicio systemd para el monitor WiFi
     cp "$PWD/wifi-mode-monitor.service" /etc/systemd/system/ || {
         log_error "Error copiando servicio de monitoreo WiFi"
         return 1
     }
-    
-    # Hacer ejecutables los scripts
-    chmod +x "$CONFIG_DIR/../scripts/ap_mode.sh"
-    chmod +x "$CONFIG_DIR/../scripts/client_mode.sh"
-    chmod +x "$CONFIG_DIR/../scripts/wifi_mode_monitor.sh"
-    chmod +x "$CONFIG_DIR/../scripts/wifi_config_manager.sh"
-    chmod +x "$CONFIG_DIR/../scripts/web_wifi_api.sh"
     
     # Recargar systemd y habilitar servicio
     systemctl daemon-reload

@@ -11,8 +11,8 @@ set -e
 
 # Configuration
 CONFIG_DIR="/opt/gateway"
-WIFI_CONFIG_SCRIPT="$CONFIG_DIR/../scripts/wifi_config_manager.sh"
-WIFI_MONITOR_SCRIPT="$CONFIG_DIR/../scripts/wifi_mode_monitor.sh"
+WIFI_CONFIG_SCRIPT="$CONFIG_DIR/scripts/wifi_config_manager.sh"
+WIFI_MONITOR_SCRIPT="$CONFIG_DIR/scripts/wifi_mode_monitor.sh"
 LOG_FILE="/var/log/web_wifi_api.log"
 
 # Colors for output

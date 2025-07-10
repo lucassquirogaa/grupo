@@ -288,7 +288,7 @@ setup_access_point() {
     ensure_hostapd_dnsmasq_templates
     
     # Verificar que los scripts de modo están disponibles
-    local ap_mode_script="$CONFIG_DIR/../scripts/ap_mode.sh"
+    local ap_mode_script="$CONFIG_DIR/scripts/ap_mode.sh"
     if [ ! -x "$ap_mode_script" ]; then
         log_error "Script de modo AP no encontrado o no ejecutable: $ap_mode_script"
         return 1
