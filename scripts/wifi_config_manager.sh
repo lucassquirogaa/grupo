@@ -251,6 +251,28 @@ EOF
 scan_networks() {
     log_info "Scanning for available networks..."
     
+    # Verificar que wlan0 existe
+    if ! ip link show wlan0 >/dev/null 2>&1; then
+        log_error "Interfaz wlan0 no encontrada"
+        return 1
+    fi
+    
+    # Verificar estado de rfkill
+    if command -v rfkill >/dev/null 2>&1; then
+        local wifi_blocked=$(rfkill list wifi | grep -c "blocked: yes" || echo "0")
+        if [ "$wifi_blocked" -gt 0 ]; then
+            log_warn "WiFi bloqueado por rfkill, desbloqueando..."
+            rfkill unblock wifi 2>/dev/null || {
+                log_error "No se pudo desbloquear WiFi"
+                return 1
+            }
+        fi
+    fi
+    
+    # Asegurar que wlan0 está activo
+    ip link set wlan0 up 2>/dev/null || true
+    sleep 1
+    
     if command -v iwlist >/dev/null 2>&1; then
         # Use iwlist for scanning
         iwlist wlan0 scan 2>/dev/null | grep "ESSID:" | cut -d'"' -f2 | sort -u

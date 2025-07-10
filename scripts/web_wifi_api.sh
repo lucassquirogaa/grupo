@@ -52,8 +52,45 @@ log_success() {
 scan_wifi_networks() {
     log_info "Scanning WiFi networks..."
     
+    # Paso 1: Verificar que wlan0 existe
+    if ! ip link show wlan0 >/dev/null 2>&1; then
+        log_error "Interfaz wlan0 no encontrada - no se puede escanear WiFi"
+        log_error "Ejecute 'ip link show' para ver interfaces disponibles"
+        log_error "Verifique que el hardware WiFi esté conectado y funcionando"
+        return 1
+    fi
+    
+    # Paso 2: Verificar estado de rfkill
+    if command -v rfkill >/dev/null 2>&1; then
+        local wifi_blocked=$(rfkill list wifi | grep -c "blocked: yes" || echo "0")
+        if [ "$wifi_blocked" -gt 0 ]; then
+            log_warn "WiFi está bloqueado por rfkill, intentando desbloquear..."
+            rfkill unblock wifi 2>/dev/null || {
+                log_error "No se pudo desbloquear WiFi con rfkill"
+                log_error "Ejecute manualmente: sudo rfkill unblock wifi"
+                return 1
+            }
+            log_info "WiFi desbloqueado exitosamente"
+        fi
+    fi
+    
+    # Paso 3: Verificar que wlan0 está activo
+    local wlan_state=$(ip link show wlan0 | grep -o "state [A-Z]*" | cut -d' ' -f2 2>/dev/null || echo "DOWN")
+    if [ "$wlan_state" != "UP" ] && [ "$wlan_state" != "UNKNOWN" ]; then
+        log_info "Activando interfaz wlan0..."
+        ip link set wlan0 up 2>/dev/null || {
+            log_error "No se pudo activar wlan0"
+            log_error "Ejecute manualmente: sudo ip link set wlan0 up"
+            return 1
+        }
+        # Esperar un momento para que la interfaz se active
+        sleep 2
+    fi
+    
+    # Paso 4: Proceder con el escaneo
     # Use iwlist or iw for scanning
     if command -v iwlist >/dev/null 2>&1; then
+        log_info "Ejecutando escaneo WiFi con iwlist..."
         # Enhanced iwlist scan with better parsing
         iwlist wlan0 scan 2>/dev/null | awk '
         /Cell [0-9]/ {
@@ -110,8 +147,79 @@ scan_wifi_networks() {
                 printf "%s|%s|%s\n", essid, signal, security
             }
         }' | sort -t'|' -k2,2nr | head -20
+        
+        # Verificar si se encontraron redes
+        local scan_result=$(iwlist wlan0 scan 2>/dev/null | awk '
+        /Cell [0-9]/ {
+            if (ssid != "" && essid != "") {
+                gsub(/^"/, "", essid)
+                gsub(/"$/, "", essid)
+                if (essid != "" && essid !~ /^\\x00/) {
+                    printf "%s|%s|%s\n", essid, signal, security
+                }
+            }
+            ssid = ""
+            signal = "0"
+            security = "Open"
+        }
+        /ESSID:/ {
+            essid = $0
+            gsub(/.*ESSID:/, "", essid)
+            gsub(/^"/, "", essid)
+            gsub(/"$/, "", essid)
+        }
+        /Quality=/ {
+            split($0, arr, "=")
+            if (length(arr) >= 2) {
+                split(arr[2], qual, "/")
+                if (length(qual) >= 2) {
+                    signal = int((qual[1] / qual[2]) * 100)
+                }
+            }
+        }
+        /Signal level=/ {
+            gsub(/.*Signal level=/, "", $0)
+            gsub(/ dBm.*/, "", $0)
+            signal_dbm = $0
+            # Convert dBm to percentage (rough approximation)
+            if (signal_dbm >= -50) signal = 100
+            else if (signal_dbm >= -60) signal = 80
+            else if (signal_dbm >= -70) signal = 60
+            else if (signal_dbm >= -80) signal = 40
+            else signal = 20
+        }
+        /Encryption key:on/ {
+            security = "WPA/WPA2"
+        }
+        /WPA Version/ {
+            security = "WPA/WPA2"
+        }
+        /WPA2 Version/ {
+            security = "WPA2"
+        }
+        END {
+            if (essid != "" && essid !~ /^\\x00/) {
+                gsub(/^"/, "", essid)
+                gsub(/"$/, "", essid)
+                printf "%s|%s|%s\n", essid, signal, security
+            }
+        }' | sort -t'|' -k2,2nr | head -20)
+        
+        if [ -z "$scan_result" ]; then
+            log_warn "No se encontraron redes WiFi"
+            log_warn "Posibles causas:"
+            log_warn "  - No hay redes WiFi en el área"
+            log_warn "  - Interfaz WiFi aún inicializándose"
+            log_warn "  - Problemas de hardware WiFi"
+            return 1
+        else
+            echo "$scan_result"
+            log_info "Escaneo completado exitosamente"
+            return 0
+        fi
     else
         log_error "No WiFi scanning tool available"
+        log_error "Instale wireless-tools: apt-get install wireless-tools"
         return 1
     fi
 }
