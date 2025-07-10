@@ -16,8 +16,8 @@ CONFIG_DIR="/opt/gateway"
 WIFI_CONFIG_FILE="$CONFIG_DIR/wifi_client.conf"
 
 # Scripts
-AP_MODE_SCRIPT="$CONFIG_DIR/../scripts/ap_mode.sh"
-CLIENT_MODE_SCRIPT="$CONFIG_DIR/../scripts/client_mode.sh"
+AP_MODE_SCRIPT="$CONFIG_DIR/scripts/ap_mode.sh"
+CLIENT_MODE_SCRIPT="$CONFIG_DIR/scripts/client_mode.sh"
 
 # WiFi interface
 WIFI_INTERFACE="wlan0"
