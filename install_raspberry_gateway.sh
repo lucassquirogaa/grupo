@@ -129,21 +129,107 @@ check_internet_connectivity() {
 }
 
 backup_existing_configs() {
-    log_info "Creating backup of existing configurations..."
+    log_info "Creando backup completo de configuraciones existentes..."
     
     local backup_dir="/root/gateway_config_backup_$(date +%s)"
     mkdir -p "$backup_dir"
     
-    # Backup network configurations
-    [ -f /etc/network/interfaces ] && cp /etc/network/interfaces "$backup_dir/" || true
-    [ -f /etc/dhcpcd.conf ] && cp /etc/dhcpcd.conf "$backup_dir/" || true
-    [ -f /etc/wpa_supplicant/wpa_supplicant.conf ] && cp /etc/wpa_supplicant/wpa_supplicant.conf "$backup_dir/" || true
+    log_info "Directorio de backup: $backup_dir"
+    
+    # Backup network configurations with detailed logging
+    if [ -f /etc/network/interfaces ]; then
+        cp /etc/network/interfaces "$backup_dir/" && \
+        log_info "✓ Backup creado: /etc/network/interfaces"
+    fi
+    
+    if [ -f /etc/dhcpcd.conf ]; then
+        cp /etc/dhcpcd.conf "$backup_dir/" && \
+        log_info "✓ Backup creado: /etc/dhcpcd.conf"
+    fi
+    
+    if [ -f /etc/wpa_supplicant/wpa_supplicant.conf ]; then
+        cp /etc/wpa_supplicant/wpa_supplicant.conf "$backup_dir/" && \
+        log_info "✓ Backup creado: /etc/wpa_supplicant/wpa_supplicant.conf"
+    fi
     
     # Backup systemd network configs if they exist
-    [ -d /etc/systemd/network ] && cp -r /etc/systemd/network "$backup_dir/" || true
+    if [ -d /etc/systemd/network ]; then
+        cp -r /etc/systemd/network "$backup_dir/" && \
+        log_info "✓ Backup creado: /etc/systemd/network/"
+    fi
     
-    log_success "Configuration backup created at: $backup_dir"
+    # Backup NetworkManager configurations
+    if [ -d /etc/NetworkManager ]; then
+        cp -r /etc/NetworkManager "$backup_dir/" && \
+        log_info "✓ Backup creado: /etc/NetworkManager/"
+    fi
+    
+    # Save current network state
+    log_info "Guardando estado actual de red..."
+    ip addr show > "$backup_dir/current_ip_addresses.txt"
+    ip route show > "$backup_dir/current_routes.txt"
+    cat /etc/resolv.conf > "$backup_dir/current_dns.txt" 2>/dev/null || true
+    
+    # Save NetworkManager connections if available
+    if command -v nmcli >/dev/null 2>&1; then
+        nmcli connection show > "$backup_dir/nmcli_connections.txt" 2>/dev/null || true
+        nmcli device status > "$backup_dir/nmcli_devices.txt" 2>/dev/null || true
+    fi
+    
+    # Create restore script
+    cat > "$backup_dir/restore_network.sh" << EOF
+#!/bin/bash
+# Network Configuration Restore Script
+# Created: $(date)
+# Backup directory: $backup_dir
+
+echo "Restaurando configuración de red desde backup..."
+
+# Stop services
+systemctl stop NetworkManager 2>/dev/null || true
+
+# Restore files
+[ -f "$backup_dir/interfaces" ] && cp "$backup_dir/interfaces" /etc/network/
+[ -f "$backup_dir/dhcpcd.conf" ] && cp "$backup_dir/dhcpcd.conf" /etc/
+[ -f "$backup_dir/wpa_supplicant.conf" ] && cp "$backup_dir/wpa_supplicant.conf" /etc/wpa_supplicant/
+[ -d "$backup_dir/systemd" ] && cp -r "$backup_dir/systemd" /etc/
+[ -d "$backup_dir/NetworkManager" ] && cp -r "$backup_dir/NetworkManager" /etc/
+
+# Restart services
+systemctl restart NetworkManager 2>/dev/null || true
+
+echo "Configuración de red restaurada desde backup"
+echo "Puede ser necesario reiniciar el sistema para aplicar todos los cambios"
+EOF
+    
+    chmod +x "$backup_dir/restore_network.sh"
+    
+    # Save backup location for later reference
     echo "$backup_dir" > "$CONFIG_DIR/backup_location.txt"
+    
+    # Create backup summary
+    cat > "$backup_dir/backup_summary.txt" << EOF
+Raspberry Pi Gateway Network Configuration Backup
+Creado: $(date)
+Script versión: $SCRIPT_VERSION
+
+Archivos respaldados:
+$(ls -la "$backup_dir")
+
+Estado de red al momento del backup:
+Dirección IP ethernet: $(ip addr show $ETH_INTERFACE | grep "inet " | awk '{print $2}' | head -1 || echo "No asignada")
+Gateway por defecto: $(ip route | grep default | awk '{print $3}' | head -1 || echo "No configurado")
+DNS actual: $(cat /etc/resolv.conf | grep nameserver | head -3 || echo "No configurado")
+
+Para restaurar:
+bash $backup_dir/restore_network.sh
+EOF
+    
+    log_success "Backup completo creado exitosamente en: $backup_dir"
+    log_info "✓ Script de restauración disponible: $backup_dir/restore_network.sh"
+    log_info "✓ Resumen del backup: $backup_dir/backup_summary.txt"
+    
+    return 0
 }
 
 # ============================================
@@ -959,7 +1045,299 @@ EOF
 }
 
 # ============================================
-# NETWORK CONFIGURATION FUNCTIONS
+# DEFERRED NETWORK CONFIGURATION FUNCTIONS
+# ============================================
+
+create_network_config_applier() {
+    log_info "Creating network configuration applier script..."
+    
+    cat > "$CONFIG_DIR/apply_network_config.sh" << 'EOF'
+#!/bin/bash
+
+# ============================================
+# Network Configuration Applier
+# ============================================
+# Applies deferred network configuration safely
+# This script runs after reboot to apply network changes
+# ============================================
+
+set -e
+
+LOG_FILE="/var/log/network_config_applier.log"
+CONFIG_DIR="/opt/raspberry_gateway"
+PENDING_CONFIG_DIR="$CONFIG_DIR/pending_network_config"
+APPLIED_FLAG="$CONFIG_DIR/.network_config_applied"
+
+# Network Configuration
+STATIC_IP="192.168.4.100"
+STATIC_NETMASK="24"
+STATIC_GATEWAY="192.168.4.1"
+STATIC_DNS="8.8.8.8,8.8.4.4"
+ETH_INTERFACE="eth0"
+
+log_message() {
+    local level=$1
+    local message=$2
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] [$level] $message" | tee -a "$LOG_FILE"
+}
+
+log_info() {
+    log_message "INFO" "$1"
+}
+
+log_success() {
+    log_message "SUCCESS" "$1"
+}
+
+log_error() {
+    log_message "ERROR" "$1"
+}
+
+apply_static_ip_config() {
+    log_info "Applying static IP configuration..."
+    
+    # Create backup of current configuration
+    local backup_dir="/root/network_backup_$(date +%s)"
+    mkdir -p "$backup_dir"
+    
+    if command -v nmcli >/dev/null 2>&1; then
+        # Use NetworkManager
+        local connection_name="Wired connection 1"
+        
+        # Find existing ethernet connection
+        local existing_conn=$(nmcli -t -f NAME,TYPE connection show | grep ":ethernet$" | cut -d: -f1 | head -1)
+        if [ -n "$existing_conn" ]; then
+            connection_name="$existing_conn"
+        fi
+        
+        log_info "Configuring static IP on connection: $connection_name"
+        
+        # Backup current settings
+        nmcli connection show "$connection_name" > "$backup_dir/connection_backup.txt" 2>/dev/null || true
+        
+        # Configure static IP
+        nmcli connection modify "$connection_name" \
+            ipv4.method manual \
+            ipv4.addresses "$STATIC_IP/$STATIC_NETMASK" \
+            ipv4.gateway "$STATIC_GATEWAY" \
+            ipv4.dns "$STATIC_DNS" || {
+            log_error "Failed to configure static IP with NetworkManager"
+            return 1
+        }
+        
+        # Restart connection
+        nmcli connection down "$connection_name" 2>/dev/null || true
+        sleep 2
+        nmcli connection up "$connection_name" || {
+            log_error "Failed to activate static IP connection"
+            return 1
+        }
+        
+    else
+        # Fallback for systems without NetworkManager
+        log_info "Using legacy network configuration"
+        
+        # Backup current configuration
+        cp /etc/network/interfaces "$backup_dir/" 2>/dev/null || true
+        
+        # Create static interface configuration
+        cat > /etc/network/interfaces.d/eth0-static << IFACE_EOF
+auto $ETH_INTERFACE
+iface $ETH_INTERFACE inet static
+    address $STATIC_IP
+    netmask 255.255.255.0
+    gateway $STATIC_GATEWAY
+    dns-nameservers $STATIC_DNS
+IFACE_EOF
+        
+        # Restart interface
+        ifdown $ETH_INTERFACE 2>/dev/null || true
+        sleep 2
+        ifup $ETH_INTERFACE || {
+            log_error "Failed to activate static IP on $ETH_INTERFACE"
+            return 1
+        }
+    fi
+    
+    # Verify IP assignment
+    sleep 5
+    local assigned_ip=$(ip addr show $ETH_INTERFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1 | head -1)
+    
+    if [ "$assigned_ip" = "$STATIC_IP" ]; then
+        log_success "Static IP configured successfully: $assigned_ip"
+        echo "backup_location=$backup_dir" > "$CONFIG_DIR/network_backup_info.txt"
+        return 0
+    else
+        log_error "Static IP configuration failed. Expected: $STATIC_IP, Got: $assigned_ip"
+        return 1
+    fi
+}
+
+main() {
+    log_info "Starting deferred network configuration application"
+    
+    # Check if already applied
+    if [ -f "$APPLIED_FLAG" ]; then
+        log_info "Network configuration already applied"
+        exit 0
+    fi
+    
+    # Check if there's pending configuration
+    if [ ! -d "$PENDING_CONFIG_DIR" ] || [ ! -f "$PENDING_CONFIG_DIR/config_type" ]; then
+        log_info "No pending network configuration found"
+        exit 0
+    fi
+    
+    local config_type=$(cat "$PENDING_CONFIG_DIR/config_type")
+    log_info "Applying pending configuration type: $config_type"
+    
+    case "$config_type" in
+        "static_ip")
+            if apply_static_ip_config; then
+                log_success "Static IP configuration applied successfully"
+                
+                # Enable DHCP revert service now that static IP is configured
+                systemctl enable ethernet_dhcp_revert.service
+                
+                # Mark as applied
+                touch "$APPLIED_FLAG"
+                echo "applied_at=$(date)" >> "$APPLIED_FLAG"
+                echo "config_type=$config_type" >> "$APPLIED_FLAG"
+                
+                # Clean up pending configuration
+                rm -rf "$PENDING_CONFIG_DIR"
+                
+                # Disable this service so it doesn't run again
+                systemctl disable network-config-applier.service
+                
+                log_success "Network configuration application completed successfully"
+            else
+                log_error "Failed to apply static IP configuration"
+                exit 1
+            fi
+            ;;
+        *)
+            log_error "Unknown configuration type: $config_type"
+            exit 1
+            ;;
+    esac
+}
+
+# Execute main function
+main "$@"
+EOF
+
+    chmod +x "$CONFIG_DIR/apply_network_config.sh"
+    log_success "Network configuration applier script created"
+}
+
+prepare_deferred_network_config() {
+    log_info "Preparing deferred network configuration..."
+    
+    # Create pending configuration directory
+    local pending_dir="$CONFIG_DIR/pending_network_config"
+    mkdir -p "$pending_dir"
+    
+    # Set configuration type
+    echo "static_ip" > "$pending_dir/config_type"
+    echo "prepared_at=$(date)" > "$pending_dir/metadata.txt"
+    echo "static_ip=$STATIC_IP" >> "$pending_dir/metadata.txt"
+    echo "static_gateway=$STATIC_GATEWAY" >> "$pending_dir/metadata.txt"
+    echo "static_dns=$STATIC_DNS" >> "$pending_dir/metadata.txt"
+    
+    log_success "Deferred network configuration prepared"
+    log_info "Network changes will be applied after reboot"
+}
+
+prompt_network_configuration() {
+    log_info "Prompting user for network configuration..."
+    
+    echo ""
+    echo "============================================"
+    echo "⚠️  CONFIGURACIÓN DE RED"
+    echo "============================================"
+    echo ""
+    echo "TODAS las dependencias, Tailscale y servicios han sido"
+    echo "instalados exitosamente manteniendo la conectividad actual."
+    echo ""
+    echo "AHORA es necesario configurar la IP estática para el"
+    echo "setup inicial con TP-Link:"
+    echo ""
+    echo "🔗 IP estática: $STATIC_IP"
+    echo "🌐 Gateway: $STATIC_GATEWAY"
+    echo "📡 Interface: $ETH_INTERFACE"
+    echo ""
+    echo "⚠️  ADVERTENCIA:"
+    echo "Este cambio puede cortar la conexión SSH/network actual."
+    echo "El sistema será accesible después en la nueva IP."
+    echo ""
+    echo "Opciones:"
+    echo "1. Aplicar AHORA (recomendado si instalación local)"
+    echo "2. Diferir hasta después del REINICIO (recomendado para SSH remoto)"
+    echo "3. Configurar MANUALMENTE más tarde"
+    echo ""
+    
+    local choice=""
+    while [ -z "$choice" ]; do
+        echo -n "Elija una opción (1/2/3): "
+        read -r choice
+        
+        case "$choice" in
+            1|"ahora"|"now")
+                log_info "Usuario eligió aplicar configuración inmediatamente"
+                return 0  # Apply now
+                ;;
+            2|"reinicio"|"reboot"|"diferir")
+                log_info "Usuario eligió diferir configuración hasta reinicio"
+                return 1  # Defer to reboot
+                ;;
+            3|"manual"|"despues"|"later")
+                log_info "Usuario eligió configuración manual posterior"
+                return 2  # Manual later
+                ;;
+            *)
+                echo -e "${RED}Opción inválida. Por favor elija 1, 2 o 3.${NC}"
+                choice=""
+                ;;
+        esac
+    done
+}
+
+show_manual_configuration_instructions() {
+    echo ""
+    echo "============================================"
+    echo "📋 INSTRUCCIONES PARA CONFIGURACIÓN MANUAL"
+    echo "============================================"
+    echo ""
+    echo "Para aplicar la configuración de red manualmente más tarde:"
+    echo ""
+    echo "1. Ejecutar el script aplicador:"
+    echo "   sudo $CONFIG_DIR/apply_network_config.sh"
+    echo ""
+    echo "2. O reiniciar el sistema para aplicación automática:"
+    echo "   sudo reboot"
+    echo ""
+    echo "3. O configurar manualmente la IP estática:"
+    echo "   # Con NetworkManager:"
+    echo "   sudo nmcli connection modify \"Wired connection 1\" \\"
+    echo "     ipv4.method manual \\"
+    echo "     ipv4.addresses \"$STATIC_IP/$STATIC_NETMASK\" \\"
+    echo "     ipv4.gateway \"$STATIC_GATEWAY\" \\"
+    echo "     ipv4.dns \"$STATIC_DNS\""
+    echo "   sudo nmcli connection up \"Wired connection 1\""
+    echo ""
+    echo "Después de la configuración:"
+    echo "🌐 Portal web: http://$STATIC_IP:$WEB_PORT"
+    echo "🔧 Configurar WiFi desde el portal web"
+    echo ""
+    echo "Archivos de configuración en: $CONFIG_DIR"
+    echo "============================================"
+    echo ""
+}
+
+# ============================================
+# NETWORK CONFIGURATION FUNCTIONS (MODIFIED)
 # ============================================
 
 configure_static_ip() {
@@ -1135,7 +1513,7 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
     
-    # DHCP revert service (one-shot)
+    # DHCP revert service (one-shot) - DO NOT ENABLE YET
     cat > "/etc/systemd/system/$REVERT_SERVICE_NAME" << EOF
 [Unit]
 Description=Ethernet DHCP Revert Service
@@ -1159,12 +1537,37 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
     
-    # Reload systemd and enable services
+    # Network config applier service (for deferred configuration)
+    cat > "/etc/systemd/system/network-config-applier.service" << EOF
+[Unit]
+Description=Network Configuration Applier
+Documentation=Applies deferred network configuration after installation
+After=network.target NetworkManager.service
+Wants=network-online.target
+ConditionPathExists=$CONFIG_DIR/pending_network_config
+
+[Service]
+Type=oneshot
+ExecStart=$CONFIG_DIR/apply_network_config.sh
+RemainAfterExit=no
+User=root
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # Reload systemd and enable only the main service initially
     systemctl daemon-reload
     systemctl enable "$SERVICE_NAME"
-    systemctl enable "$REVERT_SERVICE_NAME"
+    # Note: DHCP revert and network config applier services will be enabled only when needed
     
-    log_success "Systemd services created and enabled"
+    log_success "Systemd services created (main service enabled, network services pending)"
 }
 
 # ============================================
@@ -1267,7 +1670,7 @@ test_flask_application() {
 main() {
     echo "============================================"
     echo "$SCRIPT_NAME v$SCRIPT_VERSION"
-    echo "Single Comprehensive Installation Script"
+    echo "Instalación Segura con Configuración de Red Diferida"
     echo "============================================"
     
     # Pre-installation checks
@@ -1279,80 +1682,259 @@ main() {
     mkdir -p "$(dirname "$LOG_FILE")"
     mkdir -p "$CONFIG_DIR"
     
-    log_info "Starting Raspberry Pi Gateway installation v$SCRIPT_VERSION"
+    log_info "Iniciando instalación segura de Raspberry Pi Gateway v$SCRIPT_VERSION"
+    log_info "TODAS las dependencias se instalarán ANTES de modificar la red"
     
-    # Step 1: Install dependencies FIRST (while maintaining internet connectivity)
-    log_info "=== STEP 1: Installing dependencies ==="
-    install_system_dependencies
-    setup_python_environment
-    install_tailscale
+    # =================================================================
+    # PHASE 1: INSTALL ALL DEPENDENCIES (MANTENER INTERNET CONNECTIVITY)
+    # =================================================================
     
-    # Step 2: Request building identification
-    log_info "=== STEP 2: Building identification ==="
-    prompt_building_identification
+    log_info "=== FASE 1: Instalando TODAS las dependencias (sin tocar la red) ==="
     
-    # Step 3: Create application components
-    log_info "=== STEP 3: Creating application components ==="
-    create_flask_application
-    create_dhcp_revert_script
-    create_systemd_services
-    
-    # Step 4: Configure Tailscale (while internet is still available)
-    log_info "=== STEP 4: Configuring Tailscale ==="
-    configure_tailscale
-    
-    # Step 5: Configure static IP (AFTER all dependencies are installed)
-    log_info "=== STEP 5: Configuring static IP ==="
-    configure_static_ip
-    
-    # Step 6: Start services
-    log_info "=== STEP 6: Starting services ==="
-    systemctl start "$SERVICE_NAME" || {
-        log_warn "Failed to start main service immediately"
+    # Step 1: Install system dependencies FIRST
+    log_info "PASO 1: Instalando dependencias del sistema..."
+    install_system_dependencies || {
+        log_error "Error en instalación de dependencias del sistema"
+        exit 1
     }
     
-    # Step 7: Validate installation
-    log_info "=== STEP 7: Validating installation ==="
-    validate_installation
-    test_flask_application
+    # Step 2: Setup Python environment FIRST  
+    log_info "PASO 2: Configurando entorno Python..."
+    setup_python_environment || {
+        log_error "Error configurando entorno Python"
+        exit 1
+    }
+    
+    # Step 3: Install Tailscale FIRST (while internet is available)
+    log_info "PASO 3: Instalando Tailscale..."
+    install_tailscale || {
+        log_error "Error instalando Tailscale"
+        exit 1
+    }
+    
+    # Step 4: Request building identification FIRST
+    log_info "PASO 4: Identificación del edificio..."
+    prompt_building_identification || {
+        log_error "Error en identificación del edificio"
+        exit 1
+    }
+    
+    # Step 5: Configure Tailscale FIRST (while internet is available)
+    log_info "PASO 5: Configurando Tailscale..."
+    configure_tailscale || {
+        log_error "Error configurando Tailscale"
+        exit 1
+    }
+    
+    # Step 6: Create application components FIRST
+    log_info "PASO 6: Creando componentes de aplicación..."
+    create_flask_application || {
+        log_error "Error creando aplicación Flask"
+        exit 1
+    }
+    
+    create_dhcp_revert_script || {
+        log_error "Error creando script de revert DHCP"
+        exit 1
+    }
+    
+    # Step 7: Create network configuration applier FIRST
+    log_info "PASO 7: Preparando configurador de red diferido..."
+    create_network_config_applier || {
+        log_error "Error creando aplicador de configuración de red"
+        exit 1
+    }
+    
+    # Step 8: Create systemd services FIRST (but don't enable network-modifying ones)
+    log_info "PASO 8: Creando servicios systemd..."
+    create_systemd_services || {
+        log_error "Error creando servicios systemd"
+        exit 1
+    }
+    
+    log_success "FASE 1 COMPLETADA: Todas las dependencias instaladas manteniendo conectividad"
+    
+    # =================================================================
+    # PHASE 2: NETWORK CONFIGURATION (POTENTIALLY BREAKING CONNECTIVITY)
+    # =================================================================
+    
+    log_info "=== FASE 2: Configuración de red (puede cortar conectividad) ==="
+    
+    # Create comprehensive backup BEFORE any network changes
+    log_info "Creando backup completo de configuración de red..."
+    backup_existing_configs || {
+        log_error "Error creando backup de configuración"
+        exit 1
+    }
+    
+    # Prompt user for network configuration approach
+    prompt_network_configuration
+    local config_choice=$?
+    
+    case $config_choice in
+        0)  # Apply now
+            log_info "Aplicando configuración de red INMEDIATAMENTE..."
+            log_warn "⚠️  La conectividad actual puede perderse después de este punto"
+            
+            # Apply static IP configuration immediately
+            configure_static_ip || {
+                log_error "Error configurando IP estática"
+                log_error "Verifique la conectividad y ejecute manualmente si es necesario"
+                exit 1
+            }
+            
+            # Enable DHCP revert service now
+            systemctl enable "$REVERT_SERVICE_NAME"
+            
+            # Start services
+            log_info "Iniciando servicios..."
+            systemctl start "$SERVICE_NAME" || {
+                log_warn "No se pudo iniciar el servicio principal inmediatamente"
+            }
+            
+            log_success "Configuración de red aplicada inmediatamente"
+            ;;
+            
+        1)  # Defer to reboot
+            log_info "CONFIGURACIÓN DE RED DIFERIDA hasta reinicio..."
+            
+            # Prepare deferred configuration
+            prepare_deferred_network_config || {
+                log_error "Error preparando configuración diferida"
+                exit 1
+            }
+            
+            # Enable network config applier service
+            systemctl enable network-config-applier.service
+            
+            # Start main service without network changes
+            systemctl start "$SERVICE_NAME" || {
+                log_warn "No se pudo iniciar el servicio principal inmediatamente"
+            }
+            
+            log_success "Configuración diferida preparada para aplicación después del reinicio"
+            ;;
+            
+        2)  # Manual later
+            log_info "Configuración manual posterior seleccionada"
+            
+            # Prepare configuration but don't enable automatic application
+            prepare_deferred_network_config || {
+                log_error "Error preparando configuración manual"
+                exit 1
+            }
+            
+            # Start main service without network changes
+            systemctl start "$SERVICE_NAME" || {
+                log_warn "No se pudo iniciar el servicio principal inmediatamente"
+            }
+            
+            # Show manual instructions
+            show_manual_configuration_instructions
+            
+            log_success "Instalación completada - configuración manual pendiente"
+            ;;
+    esac
+    
+    # =================================================================
+    # PHASE 3: VALIDATION AND COMPLETION
+    # =================================================================
+    
+    log_info "=== FASE 3: Validación y finalización ==="
+    
+    # Validate installation
+    validate_installation || {
+        log_warn "Algunas validaciones fallaron, pero la instalación puede ser funcional"
+    }
+    
+    # Test Flask application if we can
+    test_flask_application || {
+        log_warn "No se pudo validar la aplicación Flask, pero puede funcionar después del reinicio"
+    }
     
     # Final success message
-    log_success "Raspberry Pi Gateway installation completed successfully!"
+    log_success "¡Instalación de Raspberry Pi Gateway completada exitosamente!"
     
-    # Display final information
+    # Display final information based on configuration choice
+    display_final_information $config_choice
+}
+
+display_final_information() {
+    local config_choice=$1
+    
     local current_ip=$(ip addr show $ETH_INTERFACE | grep "inet " | awk '{print $2}' | cut -d/ -f1 | head -1)
-    local tailscale_ip=$(tailscale ip 2>/dev/null || echo "Configuring...")
-    local building_address=$(cat "$CONFIG_DIR/building_address.txt" 2>/dev/null || echo "Not configured")
+    local tailscale_ip=$(tailscale ip 2>/dev/null || echo "Configurando...")
+    local building_address=$(cat "$CONFIG_DIR/building_address.txt" 2>/dev/null || echo "No configurado")
     
     echo ""
     echo "=========================================="
-    echo "INSTALLATION COMPLETED SUCCESSFULLY"
+    echo "INSTALACIÓN COMPLETADA EXITOSAMENTE"
     echo "=========================================="
-    echo "🏢 Building: $building_address"
-    echo "🌐 Ethernet IP: $current_ip"
+    echo "🏢 Edificio: $building_address"
     echo "🔒 Tailscale IP: $tailscale_ip"
-    echo "🌐 Web Portal: http://$current_ip:$WEB_PORT"
-    echo "📱 WiFi Config: Available at web portal"
+    echo "📁 Configuración: $CONFIG_DIR"
+    echo "📋 Logs: $LOG_FILE"
+    echo "=========================================="
+    
+    case $config_choice in
+        0)  # Applied now
+            echo "✅ CONFIGURACIÓN DE RED APLICADA"
+            echo "=========================================="
+            echo "🌐 IP Ethernet: $current_ip"
+            echo "🌐 Portal Web: http://$current_ip:$WEB_PORT"
+            echo "📱 Configuración WiFi: Disponible en portal web"
+            echo ""
+            echo "PRÓXIMOS PASOS:"
+            echo "1. Conéctese a TP-Link WiFi: 'ControlsegConfig'"
+            echo "2. Use contraseña: 'Grupo1598'"
+            echo "3. Abra portal web: http://$current_ip:$WEB_PORT"
+            echo "4. Configure conexión WiFi del edificio"
+            echo "5. Sistema cambiará automáticamente ethernet a DHCP"
+            ;;
+            
+        1)  # Deferred to reboot
+            echo "⏳ CONFIGURACIÓN DE RED DIFERIDA"
+            echo "=========================================="
+            echo "🌐 IP Ethernet actual: $current_ip"
+            echo "🔄 IP estática después del reinicio: $STATIC_IP"
+            echo "🌐 Portal web después del reinicio: http://$STATIC_IP:$WEB_PORT"
+            echo ""
+            echo "⚠️  REINICIAR PARA APLICAR CONFIGURACIÓN:"
+            echo "   sudo reboot"
+            echo ""
+            echo "DESPUÉS DEL REINICIO:"
+            echo "1. Conéctese a TP-Link WiFi: 'ControlsegConfig'"
+            echo "2. Use contraseña: 'Grupo1598'"
+            echo "3. Abra portal web: http://$STATIC_IP:$WEB_PORT"
+            echo "4. Configure conexión WiFi del edificio"
+            ;;
+            
+        2)  # Manual later
+            echo "📋 CONFIGURACIÓN MANUAL PENDIENTE"
+            echo "=========================================="
+            echo "🌐 IP Ethernet actual: $current_ip"
+            echo "⚙️  Configuración manual requerida"
+            echo ""
+            echo "REVISAR INSTRUCCIONES MOSTRADAS ANTERIORMENTE"
+            echo "O ejecutar:"
+            echo "   sudo $CONFIG_DIR/apply_network_config.sh"
+            ;;
+    esac
+    
     echo "=========================================="
     echo ""
-    echo "📋 NEXT STEPS:"
-    echo "1. Connect device to TP-Link WiFi: 'ControlsegConfig'"
-    echo "2. Use password: 'Grupo1598'"
-    echo "3. Open web portal: http://$current_ip:$WEB_PORT"
-    echo "4. Configure building WiFi connection"
-    echo "5. System will auto-switch ethernet to DHCP"
-    echo ""
-    echo "🔧 MANAGEMENT COMMANDS:"
+    echo "🔧 COMANDOS DE GESTIÓN:"
     echo "  systemctl status $SERVICE_NAME"
     echo "  systemctl status $REVERT_SERVICE_NAME"
     echo "  tail -f $LOG_FILE"
     echo "  tail -f /var/log/raspberry_gateway_app.log"
     echo ""
-    echo "📁 CONFIG DIRECTORY: $CONFIG_DIR"
-    echo "🔄 DHCP REVERT SCRIPT: $CONFIG_DIR/revert_to_dhcp.sh"
+    echo "🔄 BACKUP DE CONFIGURACIÓN:"
+    local backup_location=$(cat "$CONFIG_DIR/backup_location.txt" 2>/dev/null || echo "No disponible")
+    echo "  $backup_location"
     echo "=========================================="
     
-    log_info "Installation log available at: $LOG_FILE"
+    log_info "Información de instalación mostrada al usuario"
 }
 
 # ============================================
