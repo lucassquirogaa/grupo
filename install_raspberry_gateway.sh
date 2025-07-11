@@ -345,6 +345,74 @@ install_system_dependencies() {
     log_success "System dependencies installed successfully"
 }
 
+setup_wifi_interface() {
+    log_info "Setting up WiFi interface and verifying status..."
+    
+    # Step 1: Unblock WiFi with rfkill
+    log_info "Unblocking WiFi interface with rfkill..."
+    if command -v rfkill >/dev/null 2>&1; then
+        # Unblock WiFi specifically
+        rfkill unblock wifi || {
+            log_warn "Could not unblock WiFi specifically"
+        }
+        
+        # Unblock all wireless interfaces
+        rfkill unblock all || {
+            log_warn "Could not unblock all interfaces"
+        }
+        
+        log_info "rfkill commands executed"
+        
+        # Show current rfkill status for logs
+        rfkill list | while read line; do
+            log_info "rfkill status: $line"
+        done
+    else
+        log_warn "rfkill not available, skipping unblock"
+    fi
+    
+    # Step 2: Check if wlan0 exists
+    if ip link show wlan0 >/dev/null 2>&1; then
+        log_success "wlan0 interface detected"
+        
+        # Step 3: Bring up wlan0 interface
+        log_info "Bringing up wlan0 interface..."
+        ip link set wlan0 up || {
+            log_warn "Could not bring up wlan0, but continuing..."
+        }
+        
+        # Verify final status
+        local wlan_state=$(ip link show wlan0 | grep -o "state [A-Z]*" | cut -d' ' -f2)
+        log_info "wlan0 state: $wlan_state"
+        
+        if [ "$wlan_state" = "UP" ] || [ "$wlan_state" = "UNKNOWN" ]; then
+            log_success "wlan0 interface is active and ready"
+            return 0
+        else
+            log_warn "wlan0 not in UP state, but hardware is present"
+            log_warn "State: $wlan_state - WiFi scanning may still work"
+            return 0
+        fi
+    else
+        log_warn "⚠️  wlan0 interface NOT found"
+        log_warn "Possible causes:"
+        log_warn "  - No WiFi hardware present"
+        log_warn "  - WiFi driver not loaded"
+        log_warn "  - WiFi hardware disabled in BIOS/firmware"
+        log_warn ""
+        log_warn "Installation will continue, but WiFi scanning"
+        log_warn "will not be available until hardware is resolved."
+        log_warn ""
+        log_warn "For diagnosis, run after installation:"
+        log_warn "  lsusb | grep -i wireless"
+        log_warn "  lspci | grep -i wireless"
+        log_warn "  dmesg | grep -i wlan"
+        log_warn "  rfkill list"
+        
+        return 0  # Don't fail installation for this
+    fi
+}
+
 setup_python_environment() {
     log_info "Setting up Python environment..."
     
@@ -426,6 +494,7 @@ import sys
 import json
 import subprocess
 import logging
+import time
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -497,7 +566,34 @@ def log_to_database(level, message):
 def scan_wifi_networks():
     """Scan for available WiFi networks"""
     try:
-        # Try nmcli first
+        # Step 1: Check if wlan0 interface exists
+        result = subprocess.run(['ip', 'link', 'show', 'wlan0'], 
+                              capture_output=True, text=True)
+        if result.returncode != 0:
+            app.logger.error("wlan0 interface not found")
+            return []
+        
+        # Step 2: Check and unblock rfkill if needed
+        try:
+            result = subprocess.run(['rfkill', 'list', 'wifi'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0 and 'blocked: yes' in result.stdout:
+                app.logger.warning("WiFi blocked by rfkill, attempting to unblock...")
+                subprocess.run(['rfkill', 'unblock', 'wifi'], capture_output=True)
+                subprocess.run(['rfkill', 'unblock', 'all'], capture_output=True)
+                app.logger.info("WiFi unblocked successfully")
+        except Exception as e:
+            app.logger.warning(f"Could not check/unblock rfkill: {e}")
+        
+        # Step 3: Ensure wlan0 is up
+        try:
+            subprocess.run(['ip', 'link', 'set', 'wlan0', 'up'], 
+                          capture_output=True, check=False)
+            time.sleep(1)  # Give interface time to come up
+        except Exception as e:
+            app.logger.warning(f"Could not bring up wlan0: {e}")
+        
+        # Step 4: Try nmcli first
         result = subprocess.run(['nmcli', '-t', '-f', 'SSID,SIGNAL,SECURITY', 'dev', 'wifi'], 
                               capture_output=True, text=True)
         if result.returncode == 0:
@@ -511,10 +607,15 @@ def scan_wifi_networks():
                             'signal': parts[1].strip(),
                             'security': parts[2].strip()
                         })
-            return networks
+            if networks:
+                return networks
         
         # Fallback to iwlist
         result = subprocess.run(['iwlist', 'wlan0', 'scan'], capture_output=True, text=True)
+        if result.returncode != 0:
+            app.logger.error(f"WiFi scan failed: {result.stderr}")
+            return []
+            
         networks = []
         current_network = {}
         
@@ -1696,6 +1797,12 @@ main() {
     install_system_dependencies || {
         log_error "Error en instalación de dependencias del sistema"
         exit 1
+    }
+    
+    # Step 1.5: Setup WiFi interface and unblock rfkill
+    log_info "PASO 1.5: Configurando interfaz WiFi..."
+    setup_wifi_interface || {
+        log_warn "Advertencias en configuración WiFi, pero continuando instalación..."
     }
     
     # Step 2: Setup Python environment FIRST  

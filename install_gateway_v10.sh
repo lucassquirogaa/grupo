@@ -632,6 +632,7 @@ install_dependencies() {
         "net-tools"
         "wireless-tools"
         "wpasupplicant"
+        "rfkill"
     )
     
     for package in "${packages[@]}"; do
@@ -644,6 +645,74 @@ install_dependencies() {
     
     log_success "Dependencias instaladas correctamente"
     return 0
+}
+
+setup_wifi_interface() {
+    log_info "Configurando interfaz WiFi y verificando estado..."
+    
+    # Paso 1: Desbloquear WiFi con rfkill
+    log_info "Desbloqueando interfaz WiFi con rfkill..."
+    if command -v rfkill >/dev/null 2>&1; then
+        # Desbloquear WiFi específicamente
+        rfkill unblock wifi || {
+            log_warn "No se pudo desbloquear WiFi específicamente"
+        }
+        
+        # Desbloquear todo tipo de interfaces inalámbricas
+        rfkill unblock all || {
+            log_warn "No se pudo desbloquear todas las interfaces"
+        }
+        
+        log_info "Comandos rfkill ejecutados"
+        
+        # Mostrar estado actual de rfkill para logs
+        rfkill list | while read line; do
+            log_info "rfkill status: $line"
+        done
+    else
+        log_warn "rfkill no está disponible, saltando desbloqueo"
+    fi
+    
+    # Paso 2: Verificar que wlan0 existe
+    if ip link show wlan0 >/dev/null 2>&1; then
+        log_success "Interfaz wlan0 detectada"
+        
+        # Paso 3: Activar la interfaz wlan0
+        log_info "Activando interfaz wlan0..."
+        ip link set wlan0 up || {
+            log_warn "No se pudo activar wlan0, pero continuando..."
+        }
+        
+        # Verificar estado final
+        local wlan_state=$(ip link show wlan0 | grep -o "state [A-Z]*" | cut -d' ' -f2)
+        log_info "Estado de wlan0: $wlan_state"
+        
+        if [ "$wlan_state" = "UP" ] || [ "$wlan_state" = "UNKNOWN" ]; then
+            log_success "Interfaz wlan0 está activa y lista para usar"
+            return 0
+        else
+            log_warn "wlan0 no está en estado UP, pero hardware está presente"
+            log_warn "Estado: $wlan_state - el escaneo WiFi puede funcionar"
+            return 0
+        fi
+    else
+        log_warn "⚠️  Interfaz wlan0 NO encontrada"
+        log_warn "Posibles causas:"
+        log_warn "  - No hay hardware WiFi presente"
+        log_warn "  - Driver WiFi no cargado"
+        log_warn "  - Hardware WiFi deshabilitado en BIOS/firmware"
+        log_warn ""
+        log_warn "El sistema continuará la instalación, pero el escaneo WiFi"
+        log_warn "no estará disponible hasta que se resuelva el hardware."
+        log_warn ""
+        log_warn "Para diagnóstico, ejecute después de la instalación:"
+        log_warn "  lsusb | grep -i wireless"
+        log_warn "  lspci | grep -i wireless"
+        log_warn "  dmesg | grep -i wlan"
+        log_warn "  rfkill list"
+        
+        return 0  # No fallar la instalación por esto
+    fi
 }
 
 setup_python_environment() {
@@ -982,6 +1051,12 @@ main() {
     install_dependencies || {
         log_error "Error en instalación de dependencias"
         exit 1
+    }
+    
+    # Paso 1.5: Configurar interfaz WiFi y desbloquear rfkill
+    log_info "=== PASO 1.5: Configurando interfaz WiFi ==="
+    setup_wifi_interface || {
+        log_warn "Advertencias en configuración WiFi, pero continuando instalación..."
     }
     
     # Paso 2: Solicitar identificación del edificio
